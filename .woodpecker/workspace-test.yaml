@@ -14,6 +14,11 @@ matrix:
 steps:
   - name: test
     image: node:22-bookworm
+    environment:
+      # Docker sets HOSTNAME to the container id, and server.js listens on
+      # HOSTNAME, so the gateway tests' server would not answer on 127.0.0.1.
+      # An Actions runner leaves it unset and server.js takes 0.0.0.0.
+      HOSTNAME: 0.0.0.0
     commands:
       - sh ci/woodpecker_setup.sh bun
       - task workspace:install
