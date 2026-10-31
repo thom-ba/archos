@@ -265,12 +265,13 @@ avoids them looks odd without the reason, so don't "simplify" it back.
   setting `ALLOW_SKIP=1` only hides the missing check.
 
 - **A shallow checkout with `persist-credentials: false` cannot diff a push.**
-  `paths-filter` compares against the diff base (the PR's base on a pull request,
-  `github.event.before` on a push); that commit is absent from a depth-1 clone,
-  so the action falls back to `git fetch` — which has no
-  token and dies with `could not read Username for 'https://github.com'`. The
-  "Detect changes" job therefore uses `fetch-depth: 0`: the base commit is
-  already local, so nothing is fetched and no credential is persisted. Applies
+  The Plan job's `ci/paths_filter.py` diffs against the base (the PR's base on a
+  pull request, the last green commit on a push) with plain `git diff`. That
+  commit is absent from a depth-1 clone, and the script never fetches, so it
+  fails. (The `paths-filter` action it replaced fell back to `git fetch`, which
+  has no token and died with `could not read Username for 'https://github.com'`.)
+  Plan therefore uses `fetch-depth: 0`: the base commit is already local, so
+  nothing is fetched and no credential is persisted. Applies
   to any step that reads history (diffing, `git describe`, changelog
   generation), not just this one.
 - **A failed "Detect changes" publishes nothing at all.** All three build jobs
