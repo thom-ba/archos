@@ -1,0 +1,20 @@
+# Workspace lint and types, the `workspace` job of .github/workflows/ci.yml on
+# Woodpecker (pilot, docs/contributing/woodpecker.md). Not yet here: the
+# row-level-security suite (task db:test:rls needs the PostgreSQL server
+# binaries) and the change filter.
+when:
+  - event: pull_request
+    branch: [develop, "release/**", "claude/**"]
+  - event: push
+    branch: [develop, "release/**"]
+
+steps:
+  - name: checks
+    image: node:22-bookworm
+    commands:
+      - sh ci/woodpecker_setup.sh bun
+      - task workspace:install
+      - task workspace:cards:check
+      - task workspace:lint
+      - task workspace:types
+      - task workspace:blast-radius

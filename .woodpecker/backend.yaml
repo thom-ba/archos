@@ -1,0 +1,26 @@
+# The backend core suite in four shards, the `backend` job of
+# .github/workflows/ci.yml on Woodpecker (pilot, docs/contributing/woodpecker.md).
+# Not yet here: the coverage gate over the shards (workflows share no files)
+# and the change filter that skips a run without backend changes.
+when:
+  - event: pull_request
+    branch: [develop, "release/**", "claude/**"]
+  - event: push
+    branch: [develop, "release/**"]
+
+matrix:
+  SHARD: [1, 2, 3, 4]
+
+# A real Qdrant, the version production runs (ADR-0115).
+services:
+  - name: qdrant
+    image: qdrant/qdrant:v1.19.2
+
+steps:
+  - name: core
+    image: node:22-bookworm
+    environment:
+      QDRANT_TEST_URL: http://qdrant:6333
+    commands:
+      - sh ci/woodpecker_setup.sh python
+      - task be:test:shard SHARD=${SHARD}/4
