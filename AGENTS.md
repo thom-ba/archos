@@ -148,7 +148,7 @@ asked for it in this session:
 | Run it freely | Ask first |
 |---|---|
 | `task workspace:provision:authz` and its siblings, which check | the same task with `-- --apply`, which writes the catalog into WorkOS (every deploy also runs it, as the Job `grid-app-authz-catalog`) |
-| `npm run preview` in `deploy/pulumi` | `npm run up`, which mutates the cluster, and `npm run destroy`, which deletes it |
+| `npm run preview` in `deploy/pulumi` | `npm run up`, which mutates the cluster, `task infra:deploy:dev` and `infra:deploy:dev:apply`, which run `pulumi up` on the dev stack, and `npm run destroy`, which deletes it |
 | writing a migration file | `bun run db:migrate` or `migrate:storage` against a database you did not create |
 | `task prompts:push`, which checks | the same task with `-- --apply`, which publishes the platform prompt to Langfuse |
 | `task langfuse:provision`, which checks | the same task with `-- --apply`, which creates score configs, the review queue, judges and the golden dataset in Langfuse |

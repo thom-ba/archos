@@ -4,10 +4,7 @@ A trial of [Woodpecker CI](https://woodpecker-ci.org) beside GitHub Actions.
 Actions stays the CI and the deployer of record: nothing here changes what it
 runs. The pipelines under `.woodpecker/` call the `task` targets the Actions
 jobs call, and the aggregates `ci:repo` and `ci:workspace` run what a job's
-steps run, in their order. One exception: Actions still builds images through
-`.github/actions/build-image`, Woodpecker through `task image:build`.
-`tests/test_build_image.py` holds the two to the same tags, cache, build args
-and secret.
+steps run, in their order.
 
 ## What runs
 
@@ -50,13 +47,43 @@ readable, not by what it may do:
 - a token of its own (`pulumi_dev_access_token`), never the one Actions holds,
   so it can be revoked without touching Actions;
 - the Woodpecker secret registered for the `manual` event only, so no pull
-  request or push pipeline reads it;
+  request or push pipeline gets it as a variable;
 - only the `deploy` step gets it, and that step installs nothing: the
   installers (go-task, bun, both lockfiles, the Pulumi CLI) run in the
   `prepare` step before it, which holds no secret;
 - only maintainers on the Woodpecker server, since anyone who can start a
   manual pipeline can start one from a branch whose own `deploy-dev.yaml` is
-  changed. Woodpecker cannot tie a secret to a branch.
+  changed. Woodpecker cannot tie a secret to a branch;
+- the deploy on an agent of its own (see [Agents](#agents)), never on the host
+  that runs `images.yaml` or the server.
+
+What is left is the hosts. `images.yaml` needs the repository's volumes trust,
+and the trust belongs to the repository while `labels:` sit in the pipeline
+file. So a branch that edits a pipeline can mount the Docker socket on any
+agent, the deploy agent included, and is root on that host. As root it reads
+the agent secret, can register an agent of the `deploy` pool, and so take a
+later deploy and its token, which reaches prod. Only the approval gate stops
+that: a maintainer approves every pipeline, on every event, after reading what
+it changes under `.woodpecker/`. The pools keep the honest pipelines apart.
+Run the server on a host with no agent, since its volume holds every secret
+and the users' GitHub tokens. Building without the host socket (a rootless or
+remote BuildKit) would drop the volumes trust, and this risk with it; the
+pilot does not.
+
+## Agents
+
+A workflow runs only on an agent whose `WOODPECKER_AGENT_LABELS` match its
+`labels:`. Each pipeline names one pool:
+
+| Pool | Pipelines | Agent host |
+|---|---|---|
+| `pool=ci` | `repo`, `backend`, `workspace`, `workspace-test` | any but the server's; no step mounts the socket |
+| `pool=build` | `images` | its own: its steps are root on it |
+| `pool=deploy` | `deploy-dev` | its own, apart from the build host and the server |
+
+A pipeline with no agent of its pool waits in the queue. For a quick test on
+one host, `WOODPECKER_AGENT_LABELS=pool=*` takes all three, with the risk
+above.
 
 ## Run it
 
@@ -114,7 +141,8 @@ agents that run the steps as containers on the host's Docker. A test needs:
    repository to activate it: activating installs a webhook. A fork or a mirror
    under your own account works without the repository's admins; the deploy
    still reads the images from `ghcr.io/archos-at`, where Actions publishes.
-3. The server and an agent, for example:
+3. The server and the agents, each pool on its host as in [Agents](#agents).
+   For example the server, and a `ci` agent on its own host:
 
    ```sh
    # WOODPECKER_AGENT_SECRET: openssl rand -hex 32, the same for both
@@ -131,16 +159,19 @@ agents that run the steps as containers on the host's Docker. A test needs:
      -v /var/run/docker.sock:/var/run/docker.sock \
      -e WOODPECKER_SERVER=<server host>:9000 \
      -e WOODPECKER_AGENT_SECRET \
+     -e WOODPECKER_AGENT_LABELS=pool=ci \
      woodpeckerci/woodpecker-agent:v3.20.1
    ```
 
-   `-e NAME` without a value passes the variable from the shell, so no secret
-   lands in the command line. The trusted-clone list is the tag the pipelines
-   pin; the default trusts every tag of `plugin-git`.
+   The `build` and `deploy` agents are the same command with their pool, each
+   on its own host. `-e NAME` without a value passes the variable from the
+   shell, so no secret lands in the command line. The trusted-clone list is the
+   tag the pipelines pin; the default trusts every tag of `plugin-git`.
 4. Repository settings in Woodpecker:
    - **Trusted: volumes**, for `images.yaml`, which mounts the host's Docker
      socket;
-   - **Require approval** for pull requests from forks.
+   - **Require approval** for all events, not only fork pull requests: a
+     same-repository branch can edit a pipeline too.
 5. The secrets below.
 
 Then a pull request or a push to `develop` runs the CI pipelines, and **Run
@@ -196,17 +227,22 @@ server because Docker sets `HOSTNAME`.
 - **A real dev deploy.** `deploy-dev.yaml` ran only with Pulumi and the
   registry stubbed; no real `pulumi preview` or `up`, ESC check or GHCR lookup
   has run from Woodpecker.
-- **The coverage gates.** Woodpecker workflows share no files, so the shards'
-  coverage cannot be combined as `ci.yml`'s `backend-coverage` and
-  `workspace-coverage` jobs do.
+- **The coverage gates.** Woodpecker workflows share no files, so the matrix
+  shards' coverage cannot be combined as `ci.yml`'s `backend-coverage` and
+  `workspace-coverage` jobs do. The gate needs the shards as parallel steps of
+  one workflow, which share its workspace, and a coverage step after them.
 - **Change filters.** Every pipeline runs on every event; `ci.yml` skips a tier
   its paths did not change (`.github/filters.yml`).
 - **The other `ci.yml` jobs** have no pipeline yet: `semgrep`,
   `backend-suites`, `backend-affected`, `backend-testmon`, `site`, `infra`,
   `packages`, `trivy`, and the row-level-security suite.
-- **Image push.** `images.yaml` builds; `image-push` and `publish` stay with
-  Actions, and so do the images the deploy pins. `task image:build` has no
-  push mode until a pipeline publishes.
+- **Image push.** `task image:push` exists, and Actions' `image-push` job
+  publishes through it, but no Woodpecker pipeline calls it: `images.yaml`
+  only builds, and the images the deploy pins come from Actions.
+- **`images.yaml` as committed.** The run above set its own `REGISTRY` and
+  buildx builder, and predates the shared build with labels and push mode, so
+  the default path (the host daemon's builder, the GHCR `buildcache` read) has
+  not run from Woodpecker.
 - **Deploy steps left out:** the PostHog release (the backend's
   `posthogReleaseId` stays unset after a Woodpecker deploy, so its pods roll
   once and errors lose their release link until the next Actions deploy), the
