@@ -117,8 +117,6 @@ def test_the_repo_pipeline_runs_what_the_actions_repo_job_runs():
     assert _tasks_of("ci:repo")[0] == "lint:repo"
     actions = [name for name in _actions_tasks("repo") if name != "ci:release-note-required"]
     assert expanded == actions
-    ci_steps = _load(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["repo"]["steps"]
-    assert any("pre-commit run --all-files" in step.get("run", "") for step in ci_steps)
 
 
 def test_the_workspace_pipeline_runs_what_the_actions_workspace_job_runs():

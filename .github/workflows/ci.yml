@@ -240,15 +240,13 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
             pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-
+      - uses: ./.github/actions/setup-task
       # Ruff runs once, in `Backend lint` below, where its findings become
       # annotations on the diff.
       - name: Pre-commit (all hooks, all files)
         env:
           SKIP: ruff-check,ruff-format
-        run: |
-          . .venv/bin/activate
-          pre-commit run --all-files
-      - uses: ./.github/actions/setup-task
+        run: task lint:pre-commit
       # `skills/` is the source, `.claude/` and `.agents/` are generated and
       # gitignored, and apm.lock.yaml hashes both, so a skill edit that was
       # never re-locked appears in no diff at all. `apm audit` exits 0 on
