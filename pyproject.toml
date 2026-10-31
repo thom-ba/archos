@@ -48,6 +48,11 @@ markers = [
 ]
 
 
+[tool.coverage.run]
+# Paths relative to the checkout, so `coverage combine` merges shards that ran
+# in different work directories, as each self-hosted runner has its own.
+relative_files = true
+
 [tool.ruff]
 # Ruff's default `src` is [".", "src"]; the agent's source root moved with it, and isort
 # keeps `agent` first-party only if it can find it.
