@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Put the tools an earlier step installed with
 # `sh ci/woodpecker_setup.sh --prefix .tools` on PATH: only the workspace
 # outlives a Woodpecker step. Sourced from the workspace root:

@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # The CI-neutral env the `task ci:*` targets read, from Woodpecker's own
 # variables (https://woodpecker-ci.org/docs/usage/environment). Sourced by a
 # step, after ci/woodpecker_setup.sh: `. ci/woodpecker_env.sh`.
