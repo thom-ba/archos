@@ -13,8 +13,4 @@ steps:
     image: node:22-bookworm
     commands:
       - sh ci/woodpecker_setup.sh bun
-      - task workspace:install
-      - task workspace:cards:check
-      - task workspace:lint
-      - task workspace:types
-      - task workspace:blast-radius
+      - task ci:workspace
