@@ -994,6 +994,11 @@ jobs:
       contents: read
       packages: write
     steps:
+      # The script and nothing else: the tags come from the plan, not the tree.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: ci
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
@@ -1004,23 +1009,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      # A registry-side manifest copy: seconds, and no layer moves.
+      # What `task image:publish` runs; called directly, as the job has no task.
       - name: Tag sha-${{ github.sha }}
         env:
           IMAGES: ${{ needs.changes.outputs.images }}
+          GIT_SHA: ${{ github.sha }}
           LATEST: ${{ github.ref == 'refs/heads/develop' }}
-        run: |
-          python3 - <<'PY'
-          import json, os, subprocess
-          registry, sha = os.environ["REGISTRY"], os.environ["GITHUB_SHA"]
-          for image in json.loads(os.environ["IMAGES"]):
-              repo = f"{registry}/{image['repository']}"
-              tags = ["-t", f"{repo}:sha-{sha}"]
-              if os.environ["LATEST"] == "true":
-                  tags += ["-t", f"{repo}:latest"]
-              print(f"{repo}:inputs-{image['hash']} -> sha-{sha}", flush=True)
-              subprocess.run(["docker", "buildx", "imagetools", "create", *tags, f"{repo}:inputs-{image['hash']}"], check=True)
-          PY
+        run: python3 ci/publish_images.py
 
   ci-ok:
     name: CI OK
@@ -1038,18 +1033,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: ci
+      # What `task ci:ok` runs; called directly, as the job has no task.
       - name: Require needed jobs to have passed (skipped is fine)
         env:
           NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json, os, sys
-          needs = json.loads(os.environ["NEEDS"])
-          failed = {k: v["result"] for k, v in needs.items() if v["result"] not in ("success", "skipped")}
-          if failed:
-              sys.exit(f"Failing jobs: {failed}")
-          print("All required jobs passed or were skipped.")
-          PY
+        run: python3 ci/ci_ok.py
       # A green pull_request run leaves a marker named for the tree it tested
       # (GITHUB_SHA is the merge commit every job checked out), so the push
       # that lands this exact tree on a green parent can skip its checks. After

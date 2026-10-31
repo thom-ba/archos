@@ -183,6 +183,13 @@ tasks:
   # The Repo checks job's own logic, so any CI runs it as one `task` call
   # (GitHub Actions in ci.yml, Woodpecker in .woodpecker/). The scripts say
   # which env each reads; BASE_SHA empty means a push.
+  # The CI OK job's gate; ci.yml calls the script itself, from a checkout of
+  # ci/ only.
+  ci:ok:
+    desc: 'CI: fail unless every needed job passed or was skipped (env NEEDS, the JSON of Actions'' needs)'
+    cmds:
+      - python3 ci/ci_ok.py
+
   ci:release-notes:
     desc: 'CI: lint the release notes, the history-walking lint only when they changed (env BASE_SHA)'
     cmds:
@@ -233,6 +240,12 @@ tasks:
       vars: [NAME]
     cmds:
       - python3 ci/build_image.py {{.NAME}} --push {{.CLI_ARGS}}
+
+  # ci.yml's publish job calls the script itself, from a checkout of ci/ only.
+  image:publish:
+    desc: "Tag the images' content tags with sha-<commit>, and latest when LATEST=true (a registry login first; env IMAGES, GIT_SHA)"
+    cmds:
+      - python3 ci/publish_images.py {{.CLI_ARGS}}
 
   lint:repo:
     desc: pre-commit across the whole repo, plus the agent-skill lockfile — the same scope CI lints
