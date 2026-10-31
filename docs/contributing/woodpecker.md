@@ -72,20 +72,36 @@ woodpecker-cli lint .woodpecker/
 
 ### One pipeline, no server
 
-`woodpecker-cli exec` runs a pipeline from this checkout on the local Docker
-daemon, without a server, webhook or OAuth app. Run it as a push: `exec`
-cannot set a pull request's target branch, which `repo.yaml`'s `base` step
-fetches.
+`woodpecker-cli exec` runs a pipeline on a Docker daemon without a server,
+webhook or OAuth app. Three things differ from a server run:
+
+- `--local`, the default, mounts this checkout into the steps, and git in the
+  step refuses it as owned by another user ("dubious ownership"). Clone from a
+  bundle instead, with `--local=false`.
+- The `when:` filters match `--commit-branch`: `develop` for a push, and for a
+  pull request its target. `--commit-refspec <branch>:develop` gives a pull
+  request the target branch that `repo.yaml`'s `base` step fetches.
+- The repository trusts are flags: `images.yaml` mounts the host's Docker
+  socket and needs `--repo-trusted-volumes`.
 
 ```sh
-woodpecker-cli exec --local --repo-path . --pipeline-event push .woodpecker/repo.yaml
-woodpecker-cli exec --local --repo-path . --pipeline-event push .woodpecker/workspace.yaml
+branch=$(git branch --show-current)
+mkdir -p ../wp-bundle && git bundle create ../wp-bundle/ci.bundle develop "$branch"
+exec_flags="--local=false --repo-clone-url /bundle/ci.bundle
+  --backend-docker-volumes $(cd ../wp-bundle && pwd):/bundle:ro
+  --commit-sha $(git rev-parse HEAD) --commit-ref refs/heads/$branch --commit-branch develop"
+woodpecker-cli exec $exec_flags --pipeline-event push .woodpecker/workspace.yaml
+woodpecker-cli exec $exec_flags --pipeline-event pull_request \
+  --commit-refspec "$branch:develop" .woodpecker/repo.yaml
 ```
 
-It runs the steps as containers on this machine: the backend and workspace
-shards want 4 cores and 8 GB, so a laptop is the wrong place for them. Leave
-`deploy-dev.yaml` to a server: `exec` takes secrets as flags, which puts them
-in the shell history.
+`exec` runs a matrix's axes one after another, not side by side. On a shared
+host, cap each step with `--backend-docker-limit-mem` and
+`--backend-docker-limit-cpu-quota`. The steps run as containers on this
+machine: the backend and workspace shards want 4 cores and 8 GB, so a laptop
+is the wrong place for them. Leave a real `deploy-dev.yaml` to a server, where
+its secrets are tied to the `manual` event; `exec` reads them from
+`--secrets-file`, which then holds the token.
 
 ### On a host
 
@@ -152,12 +168,31 @@ The Pulumi token's value never goes into a file or a log: the step reads it
 from the environment, and `tests/test_deploy_dev.py` checks the script does
 not print it.
 
+## Tested
+
+On 2026-10-31 the pipelines ran with `woodpecker-cli exec` 3.20.1 as above, on
+a borrowed shared Linux host (32 threads, Docker 29), each step capped at
+16 GiB and 8 CPUs. Peak is the largest step's memory.
+
+| Pipeline | Event | Result | Time | Peak |
+|---|---|---|---|---|
+| `repo.yaml` | pull request | passed | 125 s | 1.1 GiB |
+| `backend.yaml` | push | 16510 passed, 1 failed: an OCR test's 30 s deadline under the host's load; its file passed three times alone | 992 s | 3.8 GiB |
+| `workspace.yaml` | push | passed | 49 s | 2.5 GiB |
+| `workspace-test.yaml` | push | all 8 shards passed: 1 to 3 and 6 to 8 in one run, 4 and 5 again after the `HOSTNAME` fix below | 652 s for 8 | 2.9 GiB |
+| `images.yaml` | pull request | backend, frontend and web built without layer cache, tagged under `REGISTRY=archos-wp` on a buildx builder of their own, nothing pushed | 454 s for 3 | in BuildKit, not measured |
+| `deploy-dev.yaml` | manual | passed with the Pulumi CLI, the ESC check and the registry scripts stubbed and dummy secrets: every `pulumi` call named the dev stack, preview ran before up, and no secret value reached the log | 53 s | 0.3 GiB |
+
+The runs found three pipeline bugs, fixed on this branch: Qdrant's service
+started outside its image's workdir, pytest-xdist started a worker per host
+core (32) and ran out of memory, and the gateway tests could not reach their
+server because Docker sets `HOSTNAME`.
+
 ## What is missing
 
-- **A host.** The repository has no Woodpecker server, and adding one to it
-  needs its admins (webhook, OAuth app). Nothing here has run on a Woodpecker
-  agent yet; the pipelines pass `woodpecker-cli lint` 3.20.1 and the tests
-  above.
+- **A server.** The repository has no Woodpecker server, and adding one to it
+  needs its admins (webhook, OAuth app). The runs above used `exec`, so no
+  webhook, status check, secret store or pull request approval was exercised.
 - **The coverage gates.** Woodpecker workflows share no files, so the shards'
   coverage cannot be combined as `ci.yml`'s `backend-coverage` and
   `workspace-coverage` jobs do.
