@@ -433,9 +433,7 @@ def test_a_pull_requests_repo_checks_fetch_only_down_to_the_merge_base():
     assert ". ci/git_auth.sh" in fetch["run"]
     # Before every step that reads the merge base.
     readers = [
-        i
-        for i, step in enumerate(steps)
-        if step.get("run") in ("task ci:release-note-required", "task ci:secrets")
+        i for i, step in enumerate(steps) if step.get("run") in ("task ci:release-note-required", "task ci:secrets")
     ]
     assert readers and min(readers) > 1
 
