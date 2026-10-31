@@ -221,15 +221,21 @@ a borrowed shared Linux host (32 threads, Docker 29), each step capped at
 | `workspace-test.yaml` | push | all 8 shards passed: 1 to 3 and 6 to 8 in one run, 4 and 5 again after the `HOSTNAME` fix below | 652 s for 8 | 2.9 GiB |
 | `images.yaml` | pull request | backend, frontend and web built without layer cache, tagged under `REGISTRY=archos-wp` on a buildx builder of their own, nothing pushed | 454 s for 3 | in BuildKit, not measured |
 | `deploy-dev.yaml` | manual | passed with the Pulumi CLI, the ESC check and the registry scripts stubbed and dummy secrets: every `pulumi` call named the dev stack, preview ran before up, and no secret value reached the log | 53 s | 0.3 GiB |
+| `sast.yaml` | pull request | passed, no finding, after the Semgrep fix below | 19 s | 0.1 GiB |
+| `trivy.yaml` | pull request | passed; the branch moves no pin, so it scanned none. Its `scan` step alone on one real pin (`alpine:3.22.6` by digest) found no vulnerability | 24 s; 98 s for the pin | 0.1 GiB |
+| `site.yaml` | push | passed, with the accessibility check's 80 views | 105 s | 0.6 GiB |
+| `infra.yaml` | push | 711 tests passed, after the `jq` fix below | 49 s | 1.5 GiB |
+| `packages.yaml` | push | 195 TypeScript and 636 Python tests passed | 86 s | 1.6 GiB |
 
-The runs found three pipeline bugs, fixed on this branch: Qdrant's service
+The runs found these pipeline bugs, fixed on this branch: Qdrant's service
 started outside its image's workdir, pytest-xdist started a worker per host
 core (32) and ran out of memory, and the gateway tests could not reach their
-server because Docker sets `HOSTNAME`.
-
-`sast.yaml`, `trivy.yaml`, `site.yaml`, `infra.yaml` and `packages.yaml` came
-later: they pass `woodpecker-cli lint` 3.20.1 and the harness test, and have
-not run yet.
+server because Docker sets `HOSTNAME`. The later five found three more: Semgrep
+blocked the `buildx` calls in `ci/build_image.py` and `ci/publish_images.py`
+(an argument list, no shell; `ci.yml`'s scan would have blocked them too, so
+they carry a `nosemgrep`), `node:22-bookworm` has no `jq` for the infra tests'
+`resolve-image-refs.sh`, and `packages.yaml` started 32 pytest workers
+(5.8 GiB, 106 s) until it got `backend.yaml`'s cap of four.
 
 ## What is missing
 
