@@ -41,3 +41,13 @@ tasks:
     dir: deploy/pulumi
     cmds:
       - bun run preview
+
+  infra:deploy:dev:
+    desc: 'Deploy the dev (staging) stack from this checkout (CI only: needs PULUMI_ACCESS_TOKEN and GH_TOKEN)'
+    # deploy.yml's staging job as one script, for a CI without its steps (the
+    # Woodpecker pilot, docs/contributing/woodpecker.md). Dev only: the script
+    # fixes the stack. It applies, so it is never part of a verify target.
+    cmds:
+      - task: infra:install
+      - task: infra:types
+      - bash deploy/pulumi/scripts/deploy-dev.sh
