@@ -66,6 +66,9 @@ def main(argv: list[str]) -> int:
     for cmd in commands(images, sha, os.environ):
         print(shlex.join(cmd), flush=True)
         if not args.dry_run:
+            # An argv list without a shell: the env values (registry, the
+            # images' hashes) reach buildx as single arguments, not a command.
+            # nosemgrep: dangerous-subprocess-use-tainted-env-args
             subprocess.run(cmd, check=True)
     return 0
 
