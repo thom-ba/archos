@@ -1,6 +1,6 @@
 # The dev (staging) deploy, the `deploy` job of .github/workflows/deploy.yml on
 # Woodpecker (pilot, docs/contributing/woodpecker.md). `task infra:deploy:dev`
-# fixes the stack to matthiasbigl/grid-oib/dev; prod has no pipeline here.
+# fixes the stack to the project's dev stack; prod has no pipeline here.
 #
 # Manual only, from develop: deploy.yml still deploys dev for every green
 # develop push, and a second deployer would race it for the stack's update
@@ -16,24 +16,37 @@ when:
 # its downgrade guard asks whether the deployed commit is an ancestor.
 clone:
   - name: clone
-    image: woodpeckerci/plugin-git
+    image: woodpeckerci/plugin-git:2.11.0
     settings:
       depth: 0
       partial: false
 
 steps:
+  # No secret in this step: it runs the installers (go-task's and bun's npm
+  # packages, both lockfiles' `bun install`, the Pulumi CLI's). What it
+  # installs stays in the workspace (.tools, node_modules) for the next step.
+  - name: prepare
+    image: node:22-bookworm
+    commands:
+      - sh ci/woodpecker_setup.sh --prefix .tools bun jq
+      - . ci/woodpecker_tools.sh
+      - task infra:deploy:dev:prepare
+
+  # The only step with the tokens, and it installs nothing.
   - name: deploy
     image: node:22-bookworm
     environment:
       DEPLOY_SHA: ${CI_COMMIT_SHA}
-      GITHUB_REPOSITORY_OWNER: ${CI_REPO_OWNER}
+      # The registry Actions publishes to, also when this runs on a fork or
+      # a mirror: the images are there and nowhere else.
+      GITHUB_REPOSITORY_OWNER: archos-at
       # Register this secret for the `manual` event only, so no pull request
       # or push pipeline can read it.
       PULUMI_ACCESS_TOKEN:
         from_secret: pulumi_dev_access_token
-      # Read-only, with packages: read for the GHCR tag lookups.
+      # A classic token with read:packages only, for the GHCR tag lookups.
       GH_TOKEN:
-        from_secret: github_token
+        from_secret: ghcr_read_token
     commands:
-      - sh ci/woodpecker_setup.sh bun jq
-      - task infra:deploy:dev
+      - . ci/woodpecker_tools.sh
+      - task infra:deploy:dev:apply

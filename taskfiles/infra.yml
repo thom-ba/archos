@@ -48,6 +48,20 @@ tasks:
     # Woodpecker pilot, docs/contributing/woodpecker.md). Dev only: the script
     # fixes the stack. It applies, so it is never part of a verify target.
     cmds:
+      - task: infra:deploy:dev:prepare
+      - task: infra:deploy:dev:apply
+
+  # The two halves, for a CI that keeps installers away from the tokens: the
+  # prepare step runs every installer and reads no secret, the apply step gets
+  # the tokens and installs nothing (.woodpecker/deploy-dev.yaml).
+  infra:deploy:dev:prepare:
+    desc: 'Dev deploy, part 1: install both lockfiles, typecheck, install the Pulumi CLI (reads no secret)'
+    cmds:
       - task: infra:install
       - task: infra:types
+      - bash deploy/pulumi/scripts/deploy-dev.sh --prepare
+
+  infra:deploy:dev:apply:
+    desc: 'Dev deploy, part 2: the gates, preview and up (CI only: needs PULUMI_ACCESS_TOKEN and GH_TOKEN)'
+    cmds:
       - bash deploy/pulumi/scripts/deploy-dev.sh
