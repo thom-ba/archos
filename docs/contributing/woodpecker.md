@@ -193,6 +193,9 @@ server because Docker sets `HOSTNAME`.
 - **A server.** The repository has no Woodpecker server, and adding one to it
   needs its admins (webhook, OAuth app). The runs above used `exec`, so no
   webhook, status check, secret store or pull request approval was exercised.
+- **A real dev deploy.** `deploy-dev.yaml` ran only with Pulumi and the
+  registry stubbed; no real `pulumi preview` or `up`, ESC check or GHCR lookup
+  has run from Woodpecker.
 - **The coverage gates.** Woodpecker workflows share no files, so the shards'
   coverage cannot be combined as `ci.yml`'s `backend-coverage` and
   `workspace-coverage` jobs do.
