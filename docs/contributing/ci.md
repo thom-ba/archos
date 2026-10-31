@@ -70,27 +70,34 @@ It also lists the third-party image pins the change adds or moves
 |---|---|---|
 | Plan (`changes`) | always | the three answers above, written to the run summary with the reason for each |
 | Repo checks (`repo`) | unless reused | pre-commit on all files, the agent-skill lockfile, ruff, the tests of `ci/`, the workflows and the release-note pipeline (`task be:test:harness`), release-note lint and (PRs) the release-note requirement, gitleaks over the commits a PR adds (a push: its full history) |
-| SAST (`semgrep`) | PRs touching code | Semgrep, diff-aware: blocks findings the PR introduces |
+| SAST (`semgrep`) | PRs touching code | Semgrep, diff-aware: blocks findings the PR introduces (`task ci:sast`) |
 | Backend affected tests (`backend-affected`) | PRs, backend tier, selection possible | per suite (core, agent_host, `sources`, the Python packages), only the tests the change reaches (`task be:test:affected`), plus the claim queues on Postgres |
 | Backend test database (`backend-testmon`) | every push to `develop` | records which test runs which code (`task be:test:testmon`) and caches it when green. Not a check |
 | Backend core (`backend`) | backend tier: pushes, and PRs testmon cannot select for | the core suite in 4 shards (`task be:test:shard`), each writing coverage data |
-| Backend coverage gate (`backend-coverage`) | backend tier | combines the shards' data, the 65% gate, the PR comment |
+| Backend coverage gate (`backend-coverage`) | backend tier | combines the shards' data, the 65% gate, the PR comment (`task be:test:coverage:ci`) |
 | Backend suites (`backend-suites`) | backend tier | three jobs side by side: the agent_host suite, the Python packages' suites (`sources`), and the migration test with the claim-queue suites on a real Postgres (`task be:test:postgres`) |
 | Workspace (`workspace`) | workspace tier | card schema check, lint, types, and the tenant-isolation suite against a real Postgres |
 | Workspace tests (`workspace-test`) | workspace tier; on a PR, unless nothing a UI spec reads changed | the vitest suite in 8 shards, split by recorded time (`tests/vitest-durations.json`, refreshed with `task workspace:test:durations`, read by `config/vitest/duration-sequencer.ts`); on a PR whose change a selection can see, only the specs it reaches (`task workspace:test:related`) |
 | Workspace accessibility (`task workspace:a11y`) | not in CI yet: run it locally, a shard at a time | axe-core, WCAG 2.2 AA, over every `/dev` preview route except those still listed in `apps/workspace/scripts/a11y-pending-routes.json` (not yet audited; the list only shrinks), light and dark, 1440 and 390 (`task workspace:a11y -- --shard i/4`). The script starts `next dev` itself with placeholder WorkOS settings; fails on a violation not in `apps/workspace/scripts/a11y-baseline.json` and on an entry that is gone. The CI job follows in a separate PR: its first run (4 shards) failed shards 1, 3 and 4 while the same shards pass locally, so the baseline does not yet hold on the runner. On GitHub Actions the script writes each difference as an `::error` annotation, which the check-run API returns where job logs cannot be fetched |
-| Workspace coverage | PRs, workspace tier | merges the shards' coverage into the PR comment. Not in `CI OK` |
-| Website, Infra, Standalone packages | their tier | `task website:verify`; `task infra:types` + `infra:test`; `task pkg:test:*` |
+| Workspace coverage | PRs, workspace tier | merges the shards' coverage into the PR comment (`task workspace:test:merge`). Not in `CI OK` |
+| Website, Infra, Standalone packages | their tier | `task ci:site`; `task ci:infra`'s steps (`infra:install`, `:types`, `:test` with otelcol-contrib); `task ci:packages`'s steps (`pkg:install`, `pkg:test:ts`, `pkg:test:py`) |
 | Hatchet engine tests (`hatchet`) | `hatchet` tier: the ingest and research Hatchet code, the BFF's jobs and scheduler, the SDK pins | starts `hatchet-lite` at production's tag and its Postgres, makes an API token in the container (`ci/hatchet_engine.sh`), and runs every suite that otherwise skips without an engine: `test_ingest_workflow_engine.py`, `test_research_workflow_engine.py` and each `bff/*/orchestrator.integration.spec.ts` over the RLS script's database. Fails when one of them ran no test or skipped one |
-| Image vulns (`trivy`) | a pin added or moved | trivy on those pins |
+| Image vulns (`trivy`) | a pin added or moved | trivy on those pins (`task ci:trivy`; Actions takes the pins from Plan) |
 | Image build (`image`) | PRs that change an image's inputs | builds it, read-only token, no push. For the UI this IS the production build check: `workspace:build` is not run separately |
-| Image build + push (`image-push`) | pushes, image not in GHCR | builds and pushes `inputs-<hash>` and the layer cache |
-| Tag images (`publish`) | pushes, after every check passed | `sha-<commit>` on all three images, and `latest` on `develop` |
-| `CI OK` (`ci-ok`) | always | fails unless every needed job passed or was skipped; on a green PR, records the tested tree for reuse |
+| Image build + push (`image-push`) | pushes, image not in GHCR | builds and pushes `inputs-<hash>` and the layer cache (`task image:push`) |
+| Tag images (`publish`) | pushes, after every check passed | `sha-<commit>` on all three images, and `latest` on `develop` (`task image:publish`) |
+| `CI OK` (`ci-ok`) | always | fails unless every needed job passed or was skipped (`task ci:ok`); on a green PR, records the tested tree for reuse |
 
 `task verify` runs the same checks locally, minus the image builds, the RLS
 suite and `packages/` (see
 [testing-and-verification.md](testing-and-verification.md)).
+
+Every `run:` step is a `task` target or a `ci/` script, so a job's commands run
+the same locally and on another CI: the YAML keeps only what is Actions' own
+(matrix, permissions, services, artifacts, caches, step summaries). A job
+container without task (`semgrep`) and a job that skips the setup (`trivy`,
+`publish`, `ci-ok`) call the script their target calls. The Woodpecker pilot
+runs the same targets ([woodpecker.md](woodpecker.md)).
 
 ## Images and deploys
 
@@ -418,6 +425,9 @@ that does not serve one of the jobs in the first table needs a reason.
 
 - Every job has a `timeout-minutes` of a few times its measured run, and every
   action is pinned by commit SHA with a `# vX.Y.Z` comment. Both are tested.
+- A new step runs a `task` target or a `ci/` script, not inline shell:
+  `tests/test_ci_workflows.py` fails on any other `run:`. Put the logic in the
+  script, and the target in `taskfiles/` with a `CI:` description.
 - A new job takes its `if:` from a `changes` output, or it runs on every merge
   including the reused ones. [`tests/test_ci_workflows.py`](../../tests/test_ci_workflows.py)
   evaluates every job's condition and fails on one that does not skip.
