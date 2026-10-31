@@ -20,13 +20,15 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "deploy" / "pulumi" / "scripts"
-DEV_STACK = "matthiasbigl/grid-oib/dev"
+PULUMI = ROOT / "deploy" / "pulumi"
+SCRIPTS = PULUMI / "scripts"
+PROJECT = yaml.safe_load((PULUMI / "Pulumi.yaml").read_text(encoding="utf-8"))["name"]
+DEV_STACK = f"matthiasbigl/{PROJECT}/dev"
 SHA = "a" * 40
 REFS = {
-    "BACKEND_IMAGE_REF": f"ghcr.io/org/grid-oib-backend:sha-{SHA}",
-    "FRONTEND_IMAGE_REF": f"ghcr.io/org/grid-oib-frontend:sha-{SHA}",
-    "WEB_IMAGE_REF": f"ghcr.io/org/grid-oib-web:sha-{SHA}",
+    "BACKEND_IMAGE_REF": f"ghcr.io/org/backend:sha-{SHA}",
+    "FRONTEND_IMAGE_REF": f"ghcr.io/org/frontend:sha-{SHA}",
+    "WEB_IMAGE_REF": f"ghcr.io/org/web:sha-{SHA}",
 }
 
 
@@ -39,7 +41,8 @@ def _stub(path: Path, body: str) -> None:
 def checkout(tmp_path: Path) -> Path:
     pulumi_dir = tmp_path / "repo" / "deploy" / "pulumi"
     (pulumi_dir / "scripts").mkdir(parents=True)
-    shutil.copy(ROOT / "deploy" / "pulumi" / "Pulumi.dev.yaml", pulumi_dir)
+    for name in ("Pulumi.yaml", "Pulumi.dev.yaml"):
+        shutil.copy(PULUMI / name, pulumi_dir)
     for name in ("deploy-dev.sh", "stack-file-preflight.awk"):
         shutil.copy(SCRIPTS / name, pulumi_dir / "scripts")
     log = tmp_path / "calls.log"
@@ -60,7 +63,8 @@ def checkout(tmp_path: Path) -> Path:
         """,
     )
     _stub(bin_dir / "node", f'[ "$1" = -p ] && {{ echo 3.0.0; exit 0; }}\necho "node $*" >>{log}\n')
-    _stub(bin_dir / "curl", "exit 99\n")
+    # The installer download: a stand-in that records how it was run.
+    _stub(bin_dir / "curl", f"""printf '%s\\n' 'echo "installer $*" >>{log}' >"${{@: -1}}"\n""")
     repo = tmp_path / "repo"
     git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
     subprocess.run([*git, "init", "-q"], check=True)
@@ -69,7 +73,7 @@ def checkout(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _run(tmp_path: Path, **env: str) -> subprocess.CompletedProcess[str]:
+def _run(tmp_path: Path, *args: str, **env: str) -> subprocess.CompletedProcess[str]:
     script = tmp_path / "repo" / "deploy" / "pulumi" / "scripts" / "deploy-dev.sh"
     environ = {
         "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}",
@@ -79,7 +83,7 @@ def _run(tmp_path: Path, **env: str) -> subprocess.CompletedProcess[str]:
         "GITHUB_REPOSITORY_OWNER": "Org",
         **env,
     }
-    return subprocess.run(["bash", str(script)], env=environ, capture_output=True, text=True, check=False)
+    return subprocess.run(["bash", str(script), *args], env=environ, capture_output=True, text=True, check=False)
 
 
 def _calls(tmp_path: Path) -> list[str]:
@@ -94,7 +98,7 @@ def test_a_deploy_names_the_dev_stack_in_every_pulumi_command(checkout: Path):
     assert pulumi[0] == f"pulumi stack select {DEV_STACK}"
     for call in pulumi:
         assert f" {DEV_STACK}" in call, call
-    assert f"pulumi config set --stack {DEV_STACK} grid-oib:backendImage {REFS['BACKEND_IMAGE_REF']}" in pulumi
+    assert f"pulumi config set --stack {DEV_STACK} {PROJECT}:backendImage {REFS['BACKEND_IMAGE_REF']}" in pulumi
     verbs = [call.split()[1] for call in pulumi]
     assert verbs.index("preview") < verbs.index("up")
     assert f"pulumi up --stack {DEV_STACK} --yes" in pulumi
@@ -110,6 +114,13 @@ def test_a_ci_triggered_deploy_checks_the_commit_tag_is_published(checkout: Path
     assert f"verify-image-tag Org sha-{head}" in _calls(checkout)
 
 
+def test_an_explicit_tag_is_verified_and_pinned(checkout: Path):
+    tag = f"sha-{SHA}"
+    assert _run(checkout, EXPLICIT_TAG=tag, IMAGE_TAG=tag).returncode == 0
+    assert f"verify-image-tag Org {tag}" in _calls(checkout)
+    assert any(call.endswith(f":imageTag {tag}") for call in _calls(checkout))
+
+
 @pytest.mark.parametrize(
     ("env", "reason"),
     [
@@ -117,6 +128,8 @@ def test_a_ci_triggered_deploy_checks_the_commit_tag_is_published(checkout: Path
         ({"EXPLICIT_TAG": "sha-abc"}, "full 40-hex"),
         ({"DEPLOY_SHA": SHA}, "is not the checked-out commit"),
         ({"PULUMI_ACCESS_TOKEN": ""}, "needs PULUMI_ACCESS_TOKEN"),
+        # Without EXPLICIT_TAG nothing would pin it: the newest image per service would go out.
+        ({"IMAGE_TAG": f"sha-{SHA}"}, f"set EXPLICIT_TAG=sha-{SHA}"),
     ],
 )
 def test_a_bad_input_stops_before_pulumi(checkout: Path, env: dict[str, str], reason: str):
@@ -128,17 +141,59 @@ def test_a_bad_input_stops_before_pulumi(checkout: Path, env: dict[str, str], re
 
 def test_the_template_stack_file_stops_before_pulumi(checkout: Path):
     stack_file = checkout / "repo" / "deploy" / "pulumi" / "Pulumi.dev.yaml"
-    stack_file.write_text("config:\n  grid-oib:baseDomain: REPLACE_ME\n", encoding="utf-8")
+    stack_file.write_text(f"config:\n  {PROJECT}:baseDomain: REPLACE_ME\n", encoding="utf-8")
     result = _run(checkout)
     assert result.returncode != 0
     assert "placeholder" in result.stdout + result.stderr
     assert _calls(checkout) == []
 
 
-def test_the_preflight_is_the_one_deploy_yml_runs():
+def test_prepare_installs_the_cli_without_any_secret(checkout: Path):
+    (checkout / "bin" / "pulumi").write_text("#!/usr/bin/env bash\necho v2.0.0\n", encoding="utf-8")
+    result = _run(checkout, "--prepare", PULUMI_ACCESS_TOKEN="", GH_TOKEN="", PULUMI_INSTALL_ROOT="/opt/tools")
+    assert result.returncode == 0, result.stderr
+    assert _calls(checkout) == ["installer --version 3.0.0 --install-root /opt/tools --no-edit-path"]
+
+
+def _preflight(program: str, stack_file: str, tmp_path: Path, *awk_args: str) -> tuple[int, str]:
+    (tmp_path / "Pulumi.dev.yaml").write_text(stack_file, encoding="utf-8")
+    (tmp_path / "preflight.awk").write_text(program, encoding="utf-8")
+    result = subprocess.run(
+        ["awk", *awk_args, "-f", "preflight.awk", "Pulumi.dev.yaml"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode, result.stdout
+
+
+@pytest.mark.parametrize(
+    "stack_file",
+    [
+        f"environment:\n  - {PROJECT}/dev\n",
+        f"environment: [{PROJECT}/dev]\n",
+        "environment:\n  - other/dev\n",
+        f"config:\n  {PROJECT}:token:\n    secure: AAAA\n",
+        f"config:\n  {PROJECT}:baseDomain: REPLACE_ME\n",
+        f"config:\n  {PROJECT}:baseDomain: dev.example.com\n",
+        f"config:\n  {PROJECT}:namespace: staging\n",
+        "# only a comment\n",
+        (PULUMI / "Pulumi.dev.yaml").read_text(encoding="utf-8"),
+    ],
+)
+def test_the_preflight_answers_as_deploy_yml_does(stack_file: str, tmp_path: Path):
     """Until deploy.yml calls the task, the two copies of the program must not drift."""
     workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8"))
     [run] = [step["run"] for step in workflow["jobs"]["deploy"]["steps"] if "<<'AWK'" in step.get("run", "")]
     inline = re.search(r"<<'AWK'[^\n]*\n(.*?)\nAWK\n", run, re.DOTALL)
     assert inline, "deploy.yml's preflight no longer has its AWK heredoc"
-    assert inline[1] in (SCRIPTS / "stack-file-preflight.awk").read_text(encoding="utf-8")
+    program = (SCRIPTS / "stack-file-preflight.awk").read_text(encoding="utf-8")
+
+    expected = _preflight(inline[1], stack_file, tmp_path)
+    assert _preflight(program, stack_file, tmp_path, "-v", f"esc_env={PROJECT}/dev") == expected
+
+
+def test_the_preflight_refuses_to_run_without_its_environment(tmp_path: Path):
+    program = (SCRIPTS / "stack-file-preflight.awk").read_text(encoding="utf-8")
+    assert _preflight(program, f"environment: [{PROJECT}/dev]\n", tmp_path)[0] == 2
