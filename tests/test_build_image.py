@@ -90,13 +90,13 @@ def test_the_labels_name_the_revision_and_version_and_take_the_ones_ci_passes():
     # empty or hold '=' and commas.
     passed = labels(
         {
-            "IMAGE_LABELS": "org.opencontainers.image.title=archos\n"
+            "IMAGE_LABELS": "org.opencontainers.image.title=repo-title\n"
             "org.opencontainers.image.description=a, b = c\n"
             "org.opencontainers.image.licenses=\n"
             "org.opencontainers.image.version=inputs-abc123\n"
         }
     )
-    assert passed["org.opencontainers.image.title"] == "archos"
+    assert passed["org.opencontainers.image.title"] == "repo-title"
     assert passed["org.opencontainers.image.description"] == "a, b = c"
     assert passed["org.opencontainers.image.licenses"] == ""
     assert passed["org.opencontainers.image.revision"] == "a" * 40
