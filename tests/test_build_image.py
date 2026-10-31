@@ -1,4 +1,4 @@
-"""ci/build_image.py builds an image the way .github/actions/build-image does."""
+"""ci/build_image.py is CI's one image build: Actions and Woodpecker both run it."""
 
 from __future__ import annotations
 
@@ -67,18 +67,77 @@ def test_the_posthog_key_reaches_the_frontend_build_only_as_a_secret_from_the_en
     assert "--secret" not in half
 
 
-def test_the_action_builds_the_same_shape():
-    """Actions still builds through the action: the two must not drift apart."""
-    action = yaml.safe_load((ROOT / ".github" / "actions" / "build-image" / "action.yml").read_text(encoding="utf-8"))
-    steps = {step.get("name", ""): step for step in action["runs"]["steps"]}
-    labels = steps["Labels"]["with"]
-    build = next(step["with"] for name, step in steps.items() if name.startswith("Build$"))
-    args = steps["Build arguments"]["run"]
+def test_a_push_writes_the_image_and_the_layer_cache():
+    cmd = build_image.command(IMAGES["frontend"], "abc123", ARGS, {}, push=True)
 
-    assert labels["images"] == "${{ inputs.registry }}/${{ inputs.repository }}"
-    assert labels["tags"] == "type=raw,value=inputs-${{ inputs.hash }}"
-    assert build["cache-from"] == "type=registry,ref=${{ inputs.registry }}/${{ inputs.repository }}:buildcache"
-    assert f"format('{build_image.POSTHOG_SECRET}={{0}}'" in build["secrets"]
-    assert 'echo "GIT_SHA=$GITHUB_SHA"' in args
-    assert 'python3 ci/image_inputs.py build-args "$IMAGE_NAME"' in args
-    assert 'echo "POSTHOG_PROJECT_ID=$POSTHOG_PROJECT_ID"' in args
+    assert "--push" in cmd
+    cache = f"type=registry,ref={_ref('frontend')}:buildcache"
+    assert cmd[cmd.index("--cache-from") + 1] == cache
+    assert cmd[cmd.index("--cache-to") + 1] == f"{cache},mode=max,image-manifest=true,oci-mediatypes=true"
+    assert cmd[cmd.index("--tag") + 1] == f"{_ref('frontend')}:inputs-abc123"
+
+
+def test_the_labels_name_the_revision_and_version_and_take_the_ones_ci_passes():
+    def labels(env):
+        cmd = build_image.command(IMAGES["backend"], "abc123", ARGS, env)
+        return dict(cmd[i + 1].split("=", 1) for i, arg in enumerate(cmd) if arg == "--label")
+
+    assert labels({}) == {
+        "org.opencontainers.image.revision": "a" * 40,
+        "org.opencontainers.image.version": "inputs-abc123",
+    }
+    # docker/metadata-action's output on Actions: one per line, values may be
+    # empty or hold '=' and commas.
+    passed = labels(
+        {
+            "IMAGE_LABELS": "org.opencontainers.image.title=archos\n"
+            "org.opencontainers.image.description=a, b = c\n"
+            "org.opencontainers.image.licenses=\n"
+            "org.opencontainers.image.version=inputs-abc123\n"
+        }
+    )
+    assert passed["org.opencontainers.image.title"] == "archos"
+    assert passed["org.opencontainers.image.description"] == "a, b = c"
+    assert passed["org.opencontainers.image.licenses"] == ""
+    assert passed["org.opencontainers.image.revision"] == "a" * 40
+
+
+def test_provenance_is_passed_only_when_set():
+    assert "--provenance" not in build_image.command(IMAGES["web"], "h", ARGS, {})
+    cmd = build_image.command(IMAGES["web"], "h", ARGS, {"PROVENANCE": "mode=max,builder-id=x"})
+    assert cmd[cmd.index("--provenance") + 1] == "mode=max,builder-id=x"
+
+
+def test_the_plan_hash_and_commit_win_over_the_computed_ones(monkeypatch, capsys):
+    monkeypatch.setenv("IMAGE_HASH", "fromtheplan")
+    monkeypatch.setenv("GIT_SHA", "b" * 40)
+    monkeypatch.delenv("REGISTRY", raising=False)
+
+    assert build_image.main(["web", "--push", "--dry-run"]) == 0
+    printed = capsys.readouterr().out
+    assert f"{_ref('web')}:inputs-fromtheplan" in printed
+    assert "GIT_SHA=" + "b" * 40 in printed
+    assert "--push" in printed
+
+
+def test_both_cis_build_through_the_task_targets():
+    """No second build: the action and the pipeline run the same targets."""
+    action = yaml.safe_load((ROOT / ".github" / "actions" / "build-image" / "action.yml").read_text(encoding="utf-8"))
+    steps = action["runs"]["steps"]
+    assert not [step for step in steps if "build-push-action" in step.get("uses", "")]
+    build = next(step for step in steps if step.get("name", "").startswith("Build$"))
+    assert build["run"] == 'task "$TARGET" NAME="$IMAGE_NAME"'
+    env = build["env"]
+    assert env["TARGET"] == "${{ inputs.push == 'true' && 'image:push' || 'image:build' }}"
+    assert env["IMAGE_HASH"] == "${{ inputs.hash }}"
+    assert env["IMAGE_LABELS"] == "${{ steps.meta.outputs.labels }}"
+    # The key reaches the environment buildx reads it from, never a command line.
+    assert env["POSTHOG_API_KEY"] == "${{ inputs.posthog-api-key }}"
+    assert "posthog-api-key" not in build["run"]
+
+    tasks = yaml.safe_load((ROOT / "taskfiles" / "repo.yml").read_text(encoding="utf-8"))["tasks"]
+    assert tasks["image:build"]["cmds"] == ["python3 ci/build_image.py {{.NAME}} {{.CLI_ARGS}}"]
+    assert tasks["image:push"]["cmds"] == ["python3 ci/build_image.py {{.NAME}} --push {{.CLI_ARGS}}"]
+
+    pipeline = yaml.safe_load((ROOT / ".woodpecker" / "images.yaml").read_text(encoding="utf-8"))
+    assert pipeline["steps"][0]["commands"][-1] == "task image:build NAME=${NAME}"

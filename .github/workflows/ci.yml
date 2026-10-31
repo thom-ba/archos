@@ -960,10 +960,6 @@ jobs:
       - uses: ./.github/actions/build-image
         with:
           name: ${{ matrix.name }}
-          context: ${{ matrix.context }}
-          dockerfile: ${{ matrix.dockerfile }}
-          target: ${{ matrix.target }}
-          repository: ${{ matrix.repository }}
           hash: ${{ matrix.hash }}
           registry: ${{ env.REGISTRY }}
 
@@ -991,10 +987,6 @@ jobs:
       - uses: ./.github/actions/build-image
         with:
           name: ${{ matrix.name }}
-          context: ${{ matrix.context }}
-          dockerfile: ${{ matrix.dockerfile }}
-          target: ${{ matrix.target }}
-          repository: ${{ matrix.repository }}
           hash: ${{ matrix.hash }}
           registry: ${{ env.REGISTRY }}
           push: "true"
