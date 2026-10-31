@@ -1,0 +1,39 @@
+# The dev (staging) deploy, the `deploy` job of .github/workflows/deploy.yml on
+# Woodpecker (pilot, docs/contributing/woodpecker.md). `task infra:deploy:dev`
+# fixes the stack to matthiasbigl/grid-oib/dev; prod has no pipeline here.
+#
+# Manual only, from develop: deploy.yml still deploys dev for every green
+# develop push, and a second deployer would race it for the stack's update
+# lock. Woodpecker pushes no images, so this deploys what Actions published:
+# without variables the newest image per service on develop's first-parent
+# line; with the pipeline variable EXPLICIT_TAG=sha-<40 hex>, that tag for all
+# three (a rollback).
+when:
+  - event: manual
+    branch: develop
+
+# Full history: resolve-image-refs.sh walks develop's first-parent line, and
+# its downgrade guard asks whether the deployed commit is an ancestor.
+clone:
+  - name: clone
+    image: woodpeckerci/plugin-git
+    settings:
+      depth: 0
+      partial: false
+
+steps:
+  - name: deploy
+    image: node:22-bookworm
+    environment:
+      DEPLOY_SHA: ${CI_COMMIT_SHA}
+      GITHUB_REPOSITORY_OWNER: ${CI_REPO_OWNER}
+      # Register this secret for the `manual` event only, so no pull request
+      # or push pipeline can read it.
+      PULUMI_ACCESS_TOKEN:
+        from_secret: pulumi_dev_access_token
+      # Read-only, with packages: read for the GHCR tag lookups.
+      GH_TOKEN:
+        from_secret: github_token
+    commands:
+      - sh ci/woodpecker_setup.sh bun jq
+      - task infra:deploy:dev

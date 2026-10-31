@@ -3,11 +3,12 @@
 # composite actions under .github/actions give a GitHub Actions job, at their
 # pins, so a step's commands are this script and then `task` targets only.
 #
-#   sh ci/woodpecker_setup.sh [python] [bun] [gitleaks]
+#   sh ci/woodpecker_setup.sh [python] [bun] [gitleaks] [jq]
 #
 # Always go-task (setup-task). `python`: uv, Python 3.14 as `python3` and the
 # synced dev venv .venv (setup-python-env). `bun`: setup-bun. `gitleaks`: the
 # binary ci/secret_scan.sh pins, since a step has no docker for its fallback.
+# `jq`: resolve-image-refs.sh needs it, and the GitHub runner image has it.
 #
 # POSIX sh, run as root in the step's container: node:22-bookworm, or
 # docker:cli (Alpine, no bash or npm) for the image builds. It installs into
@@ -66,8 +67,15 @@ for tool in "$@"; do
         "$release/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
       tar -xzf "$archive" -C /usr/local/bin gitleaks
       ;;
+    jq)
+      if command -v apk >/dev/null 2>&1; then
+        apk add --no-cache jq
+      else
+        apt-get update -qq && apt-get install -y -qq --no-install-recommends jq
+      fi
+      ;;
     *)
-      echo "ci/woodpecker_setup.sh: unknown tool '$tool' (python, bun, gitleaks)" >&2
+      echo "ci/woodpecker_setup.sh: unknown tool '$tool' (python, bun, gitleaks, jq)" >&2
       exit 2
       ;;
   esac

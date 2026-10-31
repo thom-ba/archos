@@ -21,7 +21,7 @@ SETUP = (ROOT / "ci" / "woodpecker_setup.sh").read_text(encoding="utf-8")
 sys.path.insert(0, str(ROOT / "ci"))
 import image_inputs  # noqa: E402 - ci/ is not a package
 
-SETUP_COMMAND = re.compile(r"sh ci/woodpecker_setup\.sh( (python|bun|gitleaks))*")
+SETUP_COMMAND = re.compile(r"sh ci/woodpecker_setup\.sh( (python|bun|gitleaks|jq))*")
 ENV_COMMAND = ". ci/woodpecker_env.sh"
 TASK_COMMAND = re.compile(r"task (?P<name>[a-z][a-z0-9:-]*)( [A-Z_]+=\S+)*")
 
@@ -49,7 +49,14 @@ def _pin(name: str) -> str:
 
 
 def test_the_pilot_has_its_pipelines():
-    assert {path.stem for path in PIPELINES} >= {"repo", "backend", "workspace", "workspace-test", "images"}
+    assert {path.stem for path in PIPELINES} >= {
+        "repo",
+        "backend",
+        "workspace",
+        "workspace-test",
+        "images",
+        "deploy-dev",
+    }
 
 
 @pytest.mark.parametrize("path", PIPELINES, ids=lambda path: path.name)
@@ -82,3 +89,19 @@ def test_the_backend_suite_gets_the_qdrant_actions_runs():
     actions_image = ci["jobs"]["backend"]["services"]["qdrant"]["image"]
     services = _load(ROOT / ".woodpecker" / "backend.yaml")["services"]
     assert [service["image"] for service in services] == [actions_image]
+
+
+def test_the_deploy_reaches_only_the_dev_stack():
+    pipeline = _load(ROOT / ".woodpecker" / "deploy-dev.yaml")
+    # A manual run from develop: deploy.yml still deploys dev on every push.
+    assert pipeline["when"] == [{"event": "manual", "branch": "develop"}]
+    [step] = pipeline["steps"]
+    assert step["commands"][1:] == ["task infra:deploy:dev"]
+    assert step["environment"]["PULUMI_ACCESS_TOKEN"] == {"from_secret": "pulumi_dev_access_token"}
+    # No other pipeline is handed the Pulumi token.
+    for path in PIPELINES:
+        if path.stem != "deploy-dev":
+            assert "pulumi" not in path.read_text(encoding="utf-8").lower(), path.name
+    script = (ROOT / "deploy" / "pulumi" / "scripts" / "deploy-dev.sh").read_text(encoding="utf-8")
+    assert re.findall(r"^STACK=(\S+)$", script, re.MULTILINE) == ["matthiasbigl/grid-oib/dev"]
+    assert "prod" not in script
