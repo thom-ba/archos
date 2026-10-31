@@ -13,8 +13,10 @@ labels:
   pool: ci
 
 steps:
+  # jq: the resolve-image-refs.sh tests run the script, which the GitHub
+  # runner image gives its jq and node:22-bookworm does not.
   - name: checks
     image: node:22-bookworm
     commands:
-      - sh ci/woodpecker_setup.sh bun
+      - sh ci/woodpecker_setup.sh bun jq
       - task ci:infra
