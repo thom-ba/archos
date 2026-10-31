@@ -1,7 +1,6 @@
 """Build one of the three images the way CI's build-image action does, on any CI.
 
-    task image:build NAME=backend      # build only
-    task image:push NAME=backend       # push inputs-<hash> and the layer cache
+    task image:build NAME=backend
 
 `.github/actions/build-image` (docker/build-push-action, still what GitHub
 Actions runs) and this script agree on what an image is: the context,
@@ -9,12 +8,13 @@ Dockerfile and target from `ci/image_inputs.py`, its content tag
 `inputs-<hash>`, the build args (`GIT_SHA` plus `image_inputs.py build-args`),
 the frontend's PostHog key as the BuildKit secret `posthog_cli_api_key`
 (never a build arg, which the image history keeps), and the registry layer
-cache `<repository>:buildcache`. The commit's own tags (`sha-<commit>`,
-`latest`) are never set here: publishing adds them once every check passed.
+cache `<repository>:buildcache`, read only. The commit's own tags
+(`sha-<commit>`, `latest`) are never set here: publishing adds them once every
+check passed. tests/test_build_image.py holds the two to the same shape.
 
-Pushing needs `docker login ghcr.io` with a token that may write packages,
-done by the caller. The OCI labels docker/metadata-action adds are reduced to
-the revision.
+Build only: it pushes nothing and writes no layer cache, since no pipeline
+publishes from here yet (docs/contributing/woodpecker.md). The OCI labels
+docker/metadata-action adds are reduced to the revision.
 
 Env: REGISTRY (default ghcr.io/archos-at), GIT_SHA (default: HEAD's sha),
 POSTHOG_API_KEY and POSTHOG_PROJECT_ID (both, frontend only: source maps).
@@ -35,13 +35,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import image_inputs  # noqa: E402 - the sibling module, by path
 
 POSTHOG_SECRET = "posthog_cli_api_key"
+DEFAULT_REGISTRY = "ghcr.io/archos-at"
 
 
-def command(
-    image: image_inputs.Image, digest: str, build_args: Mapping[str, str], env: Mapping[str, str], *, push: bool
-) -> list[str]:
+def command(image: image_inputs.Image, digest: str, build_args: Mapping[str, str], env: Mapping[str, str]) -> list[str]:
     """The `docker buildx build` argv; secret values stay in the environment."""
-    registry = env.get("REGISTRY", "ghcr.io/archos-at").lower()
+    registry = env.get("REGISTRY", DEFAULT_REGISTRY).lower()
     ref = f"{registry}/{image.repository}"
     argv = ["docker", "buildx", "build", "--file", image.dockerfile]
     if image.target:
@@ -58,12 +57,6 @@ def command(
     for key, value in args.items():
         argv += ["--build-arg", f"{key}={value}"]
     argv += ["--cache-from", f"type=registry,ref={ref}:buildcache"]
-    if push:
-        argv += [
-            "--push",
-            "--cache-to",
-            f"type=registry,ref={ref}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true",
-        ]
     argv.append(image.context)
     return argv
 
@@ -71,7 +64,6 @@ def command(
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("image", choices=[image.name for image in image_inputs.IMAGES])
-    parser.add_argument("--push", action="store_true", help="push the content tag and write the layer cache")
     parser.add_argument("--dry-run", action="store_true", help="print the command, build nothing")
     args = parser.parse_args(argv)
 
@@ -81,7 +73,7 @@ def main(argv: list[str]) -> int:
     sha = os.environ.get("GIT_SHA") or subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     build_args = {"GIT_SHA": sha, **image_inputs.build_args(image)}
 
-    cmd = command(image, digest, build_args, os.environ, push=args.push)
+    cmd = command(image, digest, build_args, os.environ)
     print(shlex.join(cmd), flush=True)
     if args.dry_run:
         return 0
