@@ -744,10 +744,9 @@ jobs:
           node-version: "22"
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
-      # The website's accessibility gate drives Chromium; this installs its system libraries
-      # (the version is apps/website's playwright devDependency).
-      - run: npx --yes playwright@1.63.0 install-deps chromium
-      - run: task website:verify
+      # The accessibility gate drives Chromium: ci:site installs its system
+      # libraries with apps/website's own Playwright, then runs website:verify.
+      - run: task ci:site
 
   infra:
     name: Infra (Pulumi typecheck + manifest tests)

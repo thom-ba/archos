@@ -63,6 +63,24 @@ tasks:
       - bunx playwright install chromium
       - bun run check:a11y
 
+  website:a11y:deps:
+    desc: 'The system libraries Chromium needs for website:a11y, at the website''s own Playwright (Linux: apt, as root or through sudo)'
+    # After website:install: the local Playwright, so the libraries are the ones
+    # the browser `website:a11y` installs was built against. A no-op on macOS.
+    dir: '{{.WEBSITE}}'
+    cmds:
+      - bunx playwright install-deps chromium
+
+  # The Website job of .github/workflows/ci.yml, which Actions runs as this one
+  # target, and the Woodpecker site pipeline. Installs system packages: a CI
+  # runner's target, not a laptop's.
+  ci:site:
+    desc: 'CI: the Website job: Chromium''s system libraries, then website:verify'
+    cmds:
+      - task: website:install
+      - task: website:a11y:deps
+      - task: website:verify
+
   website:capture:
     desc: Screenshot every website route at four widths (agent-browser; flags after --)
     dir: '{{.WEBSITE}}'
