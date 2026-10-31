@@ -1,5 +1,5 @@
 # Which paths belong to which tier of the test suite: the ONE definition, read
-# by ci.yml's `changes` job through dorny/paths-filter.
+# by ci.yml's `changes` job through ci/paths_filter.py.
 #
 # What this file answers is "which checks can this change break?". The filters
 # are deliberately WIDE: each includes the harnesses, the Taskfile that defines
@@ -60,6 +60,8 @@ backend:
   - 'uv.lock'
   - 'Taskfile.yml'
   - 'taskfiles/backend.yml'
+  # Turns the selection's named test files into backend-affected's EXTRA.
+  - 'ci/selected_files.py'
   # ci.yml defines how this job runs, and the setup actions it uses build
   # its environment.
   - '.github/workflows/ci.yml'
@@ -197,6 +199,8 @@ workspace:
   - 'configs/**'
   - 'Taskfile.yml'
   - 'taskfiles/workspace.yml'
+  # Turns the selection's changed files into the UI suite's FILES.
+  - 'ci/selected_files.py'
   - '.github/workflows/ci.yml'
   - '.github/filters.yml'
   - '.github/actions/setup-bun/**'
@@ -342,6 +346,8 @@ sast:
   - 'deploy/**'
   - 'scripts/**'
   - '.github/**'
+  # The scan itself (`task ci:sast`).
+  - 'ci/semgrep_scan.sh'
 # The `Hatchet engine tests` job: the suites that run the Hatchet layer on a
 # real hatchet-lite (ci/hatchet_engine.sh). Every one of them skips without an
 # engine, so this tier is the only place they run. The code each proves, the
