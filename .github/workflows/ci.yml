@@ -776,18 +776,13 @@ jobs:
       # The collector build the image digest pins (`collectorImage` in
       # deploy/pulumi/src/config/observability.ts): `collector-validate.spec.ts` runs every
       # rendered config through its `validate`, which is what refuses an
-      # unknown component or key before the collector would at start. Bump the
-      # version and checksum together with that digest.
+      # unknown component or key before the collector would at start. The
+      # version and checksums live in the script. `task ci:infra` is this job
+      # in one target.
       - name: Install otelcol-contrib (config validation)
-        env:
-          OTELCOL_VERSION: "0.163.2"
-          OTELCOL_SHA256: "cc19dd6a1b85ca694ef16655688e597f693d0e24d2baecdd50e2db597819eeff"
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/otelcol.tar.gz" \
-            "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTELCOL_VERSION}/otelcol-contrib_${OTELCOL_VERSION}_linux_amd64.tar.gz"
-          echo "${OTELCOL_SHA256}  $RUNNER_TEMP/otelcol.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/otelcol.tar.gz" -C "$RUNNER_TEMP" otelcol-contrib
-          echo "OTELCOL_BIN=$RUNNER_TEMP/otelcol-contrib" >> "$GITHUB_ENV"
+          bin="$(bash ci/install_otelcol.sh "$RUNNER_TEMP/otelcol")"
+          echo "OTELCOL_BIN=$bin" >> "$GITHUB_ENV"
       - run: task infra:test
 
   # packages/ sits outside both workspaces (own bun.lock, own uv.lock),

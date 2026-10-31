@@ -283,6 +283,8 @@ infra:
   - 'docs/deployment/qdrant-runbook.md'
   - 'Taskfile.yml'
   - 'taskfiles/infra.yml'
+  # The otelcol-contrib build collector-validate.spec.ts runs.
+  - 'ci/install_otelcol.sh'
   - '.github/workflows/ci.yml'
   - '.github/filters.yml'
   - '.github/actions/setup-bun/**'
