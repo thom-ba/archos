@@ -24,6 +24,10 @@ steps:
     image: node:22-bookworm
     environment:
       QDRANT_TEST_URL: http://qdrant:6333
+      # `-n logical` counts the agent host's cores (psutil ignores the step's
+      # CPU limit): on a 32-core host, 32 workers outgrew 16 GiB. Four, as on
+      # GitHub's runners.
+      PYTEST_XDIST_AUTO_NUM_WORKERS: 4
     commands:
       - sh ci/woodpecker_setup.sh python
       - task be:test:shard SHARD=${SHARD}/4
