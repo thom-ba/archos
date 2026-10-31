@@ -22,7 +22,7 @@ import re
 
 # Where each suite's tests live: TESTMON_PATHS in taskfiles/backend.yml.
 SUITE_ROOTS = {
-    "core": re.compile(r"^(tests|evals)/"),
+    "core": re.compile(r"^(tests|packages/agent/tests|evals)/"),
     "api": re.compile(r"^apps/agent-host/tests/"),
     "sources": re.compile(r"^packages/(knowledge-layer|ris-adapter|tavily-web-search)/"),
 }

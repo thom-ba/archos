@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ci"))
@@ -17,6 +18,7 @@ import selected_files  # noqa: E402 - ci/ is not a package
 
 NAMED = [
     "tests/test_wire.py",
+    "packages/agent/tests/test_product_framing.py",
     "evals/oib-retrieval/tests/test_harness.py",
     "apps/agent-host/tests/test_plugin.py",
     "packages/knowledge-layer/tests/test_store.py",
@@ -31,7 +33,14 @@ def test_without_a_suite_every_file_passes_in_order():
 @pytest.mark.parametrize(
     ("suite", "expected"),
     [
-        ("core", ["tests/test_wire.py", "evals/oib-retrieval/tests/test_harness.py"]),
+        (
+            "core",
+            [
+                "tests/test_wire.py",
+                "packages/agent/tests/test_product_framing.py",
+                "evals/oib-retrieval/tests/test_harness.py",
+            ],
+        ),
         ("api", ["apps/agent-host/tests/test_plugin.py"]),
         (
             "sources",
@@ -52,6 +61,17 @@ def test_only_the_first_shard_runs_the_named_files():
 def test_the_suites_split_the_named_files_without_overlap():
     picked = [path for suite in selected_files.SUITE_ROOTS for path in selected_files.select(NAMED, suite)]
     assert sorted(picked) == sorted(NAMED)
+
+
+def test_each_suite_takes_the_paths_its_testmon_run_collects():
+    taskfile = yaml.safe_load((ROOT / "taskfiles" / "backend.yml").read_text(encoding="utf-8"))
+    testmon_paths = taskfile["vars"]["TESTMON_PATHS"]["map"]
+    assert sorted(testmon_paths) == sorted(selected_files.SUITE_ROOTS)
+    for suite, args in testmon_paths.items():
+        # The paths come first, pytest's options (`--dist loadfile`) after them.
+        for path in args.split(" -")[0].split():
+            probe = f"{path.rstrip('/')}/tests/test_probe.py"
+            assert selected_files.select([probe], suite) == [probe], (suite, path)
 
 
 def test_main_reads_the_list_from_the_env(monkeypatch, capsys):
