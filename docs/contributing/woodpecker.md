@@ -226,7 +226,10 @@ server because Docker sets `HOSTNAME`.
   webhook, status check, secret store or pull request approval was exercised.
 - **A real dev deploy.** `deploy-dev.yaml` ran only with Pulumi and the
   registry stubbed; no real `pulumi preview` or `up`, ESC check or GHCR lookup
-  has run from Woodpecker.
+  has run from Woodpecker. On the first real run, check that the GHCR lookup
+  logs in (`GITHUB_ACTOR` defaults to the repository owner, not the classic
+  token's user; set it on the step if GHCR refuses), and expect the backend
+  pods to roll once (the PostHog release below).
 - **The coverage gates.** Woodpecker workflows share no files, so the matrix
   shards' coverage cannot be combined as `ci.yml`'s `backend-coverage` and
   `workspace-coverage` jobs do. The gate needs the shards as parallel steps of
