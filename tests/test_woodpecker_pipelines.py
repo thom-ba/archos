@@ -203,6 +203,25 @@ def test_each_pipeline_names_its_agent_pool_and_only_the_build_pool_mounts_the_h
         assert not mounts or pool == "build", path.name
 
 
+def _starts_a_worker_per_core(name: str) -> bool:
+    """Whether a task, or one it calls, runs pytest with `-n logical`."""
+    cmds = _cmds_of(name)
+    if "-n logical" in str(cmds) or "{{.XDIST}}" in str(cmds):
+        return True
+    calls = [cmd["task"] for cmd in cmds if isinstance(cmd, dict) and "task" in cmd]
+    return any(_starts_a_worker_per_core(call) for call in calls if call in _task_names())
+
+
+@pytest.mark.parametrize("path", PIPELINES, ids=lambda path: path.name)
+def test_a_step_that_starts_a_pytest_worker_per_core_caps_them(path: Path):
+    # `-n logical` counts the agent host's cores, not the step's CPU limit: on
+    # a 32-core host the backend shard's 32 workers outgrew 16 GiB.
+    for step in _load(path)["steps"]:
+        tasks = [match["name"] for command in step["commands"] if (match := TASK_COMMAND.fullmatch(command))]
+        if any(_starts_a_worker_per_core(task) for task in tasks):
+            assert step.get("environment", {}).get("PYTEST_XDIST_AUTO_NUM_WORKERS") == 4, f"{path.name}:{step['name']}"
+
+
 def test_the_backend_suite_gets_the_qdrant_actions_runs():
     ci = _load(ROOT / ".github" / "workflows" / "ci.yml")
     actions_image = ci["jobs"]["backend"]["services"]["qdrant"]["image"]

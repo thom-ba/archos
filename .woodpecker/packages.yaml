@@ -15,6 +15,10 @@ steps:
   # uv alone: packages/ifc-spatial-py syncs its own lockfile and Python.
   - name: checks
     image: node:22-bookworm
+    environment:
+      # ifc-spatial-py's `-n logical` counts the agent host's cores, not the
+      # step's CPU limit. Four, as on GitHub's runners and in backend.yaml.
+      PYTEST_XDIST_AUTO_NUM_WORKERS: 4
     commands:
       - sh ci/woodpecker_setup.sh bun uv
       - task ci:packages
