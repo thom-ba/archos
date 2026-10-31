@@ -139,7 +139,9 @@ reaches (`be:test:affected`, from the database `be:test:testmon` records on
 every push to `develop`); the full suite runs on the push. To run the same
 selection locally, record once with `task be:test:testmon` and then
 `task be:test:affected SUITE=core`. The UI equivalent is
-`task workspace:test:related SHARD=1/1 FILES="src/path/changed.ts"`. Locally `task workspace:verify` runs lint, types, tests and
+`task workspace:test:related SHARD=1/1 FILES="src/path/changed.ts"`. CI runs
+both through `ci:backend:affected` and `ci:workspace:related`, which add the
+files `ci/pr_selection.py` named (env `FILES_JSON`). Locally `task workspace:verify` runs lint, types, tests and
 build in order instead.
 
 What decides which jobs run (a pull request against its base, a push against the
