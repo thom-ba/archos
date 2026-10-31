@@ -1,0 +1,33 @@
+# The Semgrep findings a pull request introduces, the `semgrep` job of
+# .github/workflows/ci.yml on Woodpecker (pilot, docs/contributing/woodpecker.md).
+# The scan is `task ci:sast`'s one command, run in the image it pins, which has
+# no task. Not yet here: the findings summary and the change filter.
+when:
+  - event: pull_request
+    branch: [develop, "release/**", "claude/**"]
+
+# The agents that take it: docs/contributing/woodpecker.md, "Agents".
+labels:
+  pool: ci
+
+# The full history: semgrep diffs against the merge base, which a shallow
+# clone may not have.
+clone:
+  - name: clone
+    image: woodpeckerci/plugin-git:2.11.0
+    settings:
+      depth: 0
+      partial: false
+
+steps:
+  # The target branch's tip, which BASE_SHA names (ci/woodpecker_fetch_base.sh).
+  - name: base
+    image: node:22-bookworm
+    commands:
+      - sh ci/woodpecker_fetch_base.sh
+
+  - name: scan
+    image: semgrep/semgrep:1.177.0
+    commands:
+      - . ci/woodpecker_env.sh
+      - sh ci/semgrep_scan.sh

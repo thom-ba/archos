@@ -1,0 +1,20 @@
+# The standalone packages' suites, the `packages` job of
+# .github/workflows/ci.yml on Woodpecker (pilot, docs/contributing/woodpecker.md).
+# Not yet here: the change filter.
+when:
+  - event: pull_request
+    branch: [develop, "release/**", "claude/**"]
+  - event: push
+    branch: [develop, "release/**"]
+
+# The agents that take it: docs/contributing/woodpecker.md, "Agents".
+labels:
+  pool: ci
+
+steps:
+  # uv alone: packages/ifc-spatial-py syncs its own lockfile and Python.
+  - name: checks
+    image: node:22-bookworm
+    commands:
+      - sh ci/woodpecker_setup.sh bun uv
+      - task ci:packages

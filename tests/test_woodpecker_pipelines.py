@@ -1,7 +1,8 @@
 """The Woodpecker pilot's pipelines (.woodpecker/) stay a thin layer over `task`.
 
-Every command a step runs is a ci/woodpecker_* helper or one `task` target
-that exists, the aggregate targets are what ci.yml's jobs run, and the setup
+Every command a step runs is a ci/woodpecker_* helper, one `task` target that
+exists, or a scan script a target runs, in the image without task that the
+script pins. The aggregate targets are what ci.yml's jobs run, and the setup
 installs the same pins as the setup-* actions GitHub Actions uses, so both CIs
 run the same commands with the same tools.
 """
@@ -22,10 +23,18 @@ SETUP = (ROOT / "ci" / "woodpecker_setup.sh").read_text(encoding="utf-8")
 sys.path.insert(0, str(ROOT / "ci"))
 import image_inputs  # noqa: E402 - ci/ is not a package
 
-SETUP_COMMAND = re.compile(r"sh ci/woodpecker_setup\.sh( --prefix \.tools)?( (python|bun|gitleaks|jq))*")
+SETUP_COMMAND = re.compile(r"sh ci/woodpecker_setup\.sh( --prefix \.tools)?( (uv|python|bun|gitleaks|jq))*")
 # The other helpers a step may run besides `task`: the CI-neutral env, the
 # tools an earlier step installed, and a pull request's base fetch.
 HELPERS = {". ci/woodpecker_env.sh", ". ci/woodpecker_tools.sh", "sh ci/woodpecker_fetch_base.sh"}
+# The scans that run in their tool's own image, which has no task: pipeline,
+# step, the command, the target whose command it is, and the image's version
+# in the script, which picks the binary over its docker fallback only at that
+# version.
+SCANS = [
+    ("sast", "scan", "sh ci/semgrep_scan.sh", "ci:sast", "semgrep/semgrep", "SEMGREP_VERSION"),
+    ("trivy", "scan", "sh ci/trivy_scan.sh .trivy-cache/pins.txt", "ci:trivy", "aquasec/trivy", "TRIVY_VERSION"),
+]
 TASK_COMMAND = re.compile(r"task (?P<name>[a-z][a-z0-9:-]*)( [A-Z_]+=\S+)*")
 CLONE_IMAGE = "woodpeckerci/plugin-git:2.11.0"
 
@@ -60,15 +69,32 @@ def test_the_pilot_has_its_pipelines():
         "workspace-test",
         "images",
         "deploy-dev",
+        "sast",
+        "trivy",
+        "site",
+        "infra",
+        "packages",
     }
+
+
+def _cmds_of(name: str) -> list:
+    tasks: dict = {}
+    for taskfile in [ROOT / "Taskfile.yml", *sorted((ROOT / "taskfiles").glob("*.yml"))]:
+        tasks |= _load(taskfile).get("tasks") or {}
+    return tasks[name]["cmds"]
 
 
 def _tasks_of(name: str) -> list[str]:
     """A task's `task:` calls, in order."""
-    tasks: dict = {}
-    for taskfile in [ROOT / "Taskfile.yml", *sorted((ROOT / "taskfiles").glob("*.yml"))]:
-        tasks |= _load(taskfile).get("tasks") or {}
-    return [cmd["task"] for cmd in tasks[name]["cmds"] if isinstance(cmd, dict) and "task" in cmd]
+    return [cmd["task"] for cmd in _cmds_of(name) if isinstance(cmd, dict) and "task" in cmd]
+
+
+def _leaf_tasks(name: str) -> list[str]:
+    """A task as the tasks that run commands: one made only of `task:` calls, expanded."""
+    calls = _tasks_of(name)
+    if calls and len(calls) == len(_cmds_of(name)):
+        return [leaf for call in calls for leaf in _leaf_tasks(call)]
+    return [name]
 
 
 def _actions_tasks(job: str) -> list[str]:
@@ -84,6 +110,8 @@ def test_every_step_runs_only_the_helpers_and_task_targets(path: Path):
     for step in _load(path)["steps"]:
         for command in step["commands"]:
             if SETUP_COMMAND.fullmatch(command) or command in HELPERS:
+                continue
+            if (path.stem, step["name"], command) in {scan[:3] for scan in SCANS}:
                 continue
             match = TASK_COMMAND.fullmatch(command)
             assert match, f"{path.name}:{step['name']} runs {command!r}, not a task target"
@@ -125,6 +153,31 @@ def test_the_workspace_pipeline_runs_what_the_actions_workspace_job_runs():
     # Not yet here: the row-level-security suite (the docs' "What is missing").
     actions = [name for name in _actions_tasks("workspace") if name != "db:test:rls"]
     assert _tasks_of("ci:workspace") == actions
+
+
+@pytest.mark.parametrize(("job", "target"), [("site", "ci:site"), ("infra", "ci:infra"), ("packages", "ci:packages")])
+def test_the_site_infra_and_packages_pipelines_run_what_their_actions_jobs_run(job: str, target: str):
+    [step] = _load(ROOT / ".woodpecker" / f"{job}.yaml")["steps"]
+    assert step["commands"][-1] == f"task {target}"
+    # Actions may run the target's tasks as steps, so its log names each one.
+    assert _leaf_tasks(target) == [name for task in _actions_tasks(job) for name in _leaf_tasks(task)]
+
+
+@pytest.mark.parametrize("scan", SCANS, ids=lambda scan: scan[0])
+def test_a_scan_step_runs_its_targets_command_in_the_image_the_script_pins(scan: tuple):
+    pipeline, step_name, command, target, image, version_var = scan
+    steps = {step["name"]: step for step in _load(ROOT / ".woodpecker" / f"{pipeline}.yaml")["steps"]}
+    assert steps[step_name]["commands"][-1] == command
+    assert command in _cmds_of(target)
+    script = (ROOT / command.split()[1]).read_text(encoding="utf-8")
+    [version] = re.findall(rf"^{version_var}=(\S+)$", script, re.MULTILINE)
+    assert steps[step_name]["image"] == f"{image}:{version}"
+
+
+def test_the_trivy_pipeline_scans_the_pins_task_ci_trivy_lists():
+    steps = {step["name"]: step for step in _load(ROOT / ".woodpecker" / "trivy.yaml")["steps"]}
+    assert steps["pins"]["commands"][-1] == "task ci:trivy:pins"
+    assert _tasks_of("ci:trivy") == ["ci:trivy:pins"]
 
 
 def test_the_setup_installs_the_actions_pins():
