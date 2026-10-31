@@ -180,9 +180,6 @@ tasks:
     cmds:
       - python3 ci/paths_filter.py --base "${BASE_SHA:-}"
 
-  # The Repo checks job's own logic, so any CI runs it as one `task` call
-  # (GitHub Actions in ci.yml, Woodpecker in .woodpecker/). The scripts say
-  # which env each reads; BASE_SHA empty means a push.
   # The CI OK job's gate; ci.yml calls the script itself, from a checkout of
   # ci/ only.
   ci:ok:
@@ -190,6 +187,9 @@ tasks:
     cmds:
       - python3 ci/ci_ok.py
 
+  # The Repo checks job's own logic, so any CI runs it as one `task` call
+  # (GitHub Actions in ci.yml, Woodpecker in .woodpecker/). The scripts say
+  # which env each reads; BASE_SHA empty means a push.
   ci:release-notes:
     desc: 'CI: lint the release notes, the history-walking lint only when they changed (env BASE_SHA)'
     cmds:
