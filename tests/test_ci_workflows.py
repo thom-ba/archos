@@ -529,12 +529,13 @@ def test_every_ci_step_runs_a_task_target_or_a_ci_script():
     tasks: set[str] = set()
     for taskfile in [root / "Taskfile.yml", *sorted((root / "taskfiles").glob("*.yml"))]:
         tasks |= set(yaml.safe_load(taskfile.read_text(encoding="utf-8")).get("tasks") or {})
-    steps = {(job, step.get("name")): step for job, spec in JOBS.items() for step in spec.get("steps", [])}
-    assert ACTIONS_ONLY <= set(steps)
+    # A list, not a dict keyed by name: unnamed steps would overwrite each other.
+    steps = [(job, step) for job, spec in JOBS.items() for step in spec.get("steps", [])]
+    assert ACTIONS_ONLY <= {(job, step.get("name")) for job, step in steps}
 
     stray = []
-    for (job, name), step in steps.items():
-        if "run" not in step or (job, name) in ACTIONS_ONLY:
+    for job, step in steps:
+        if "run" not in step or (job, step.get("name")) in ACTIONS_ONLY:
             continue
         for line in step["run"].strip().splitlines():
             command = line.strip()
