@@ -57,6 +57,7 @@ UNFILTERED = {
     # The CI machinery itself. Its tests are `be:test:harness`, in Repo checks.
     "ci/**": "CI scripts, tested by `be:test:harness`; data a tier reads is in that tier",
     ".github/workflows/*.yml": "workflows other than ci.yml, tested by `be:test:harness`",
+    ".woodpecker/**": "the Woodpecker pilot's pipelines, tested by `be:test:harness`",
     ".github/filters.yml": "this file's subject; tested here, in `be:test:harness`",
     "taskfiles/repo.yml": "the Repo checks job's own tasks",
     ".pre-commit-config.yaml": "the hooks Repo checks runs on every pull request",
