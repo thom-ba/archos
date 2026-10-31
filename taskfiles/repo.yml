@@ -173,6 +173,13 @@ tasks:
       - task: workspace:types
       - task: workspace:blast-radius
 
+  # The Plan job's path filter (ci.yml calls the script itself, before any
+  # setup). BASE_SHA empty runs every tier; locally try BASE_SHA=origin/develop.
+  ci:changes:
+    desc: 'CI: which tiers of .github/filters.yml the change touches, BASE_SHA..HEAD (env BASE_SHA)'
+    cmds:
+      - python3 ci/paths_filter.py --base "${BASE_SHA:-}"
+
   # The Repo checks job's own logic, so any CI runs it as one `task` call
   # (GitHub Actions in ci.yml, Woodpecker in .woodpecker/). The scripts say
   # which env each reads; BASE_SHA empty means a push.

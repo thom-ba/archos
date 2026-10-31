@@ -131,7 +131,7 @@ FULL_PY = ["backend", "backend-coverage", "backend-suites"]
 
 
 def test_a_pull_request_diffs_its_whole_base_and_a_push_its_last_green_commit():
-    base = STEPS["filter"]["with"]["base"]
+    base = STEPS["filter"]["env"]["BASE"]
     pins = STEPS["pins"]["env"]["BASE"]
 
     assert base == pins == "${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}"

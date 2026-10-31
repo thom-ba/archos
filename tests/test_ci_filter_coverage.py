@@ -1,13 +1,14 @@
 """Every tracked path belongs to a CI tier, or is listed here as deliberately in none.
 
-`.github/filters.yml` decides which jobs a change runs (dorny/paths-filter), and
+`.github/filters.yml` decides which jobs a change runs (ci/paths_filter.py), and
 a job that is skipped counts as passed. So a path no filter names is a path
 whose change merges with its tests unrun, and nothing says so: moving
 `apps/foo/` to `apps/bar/` without moving its filter line drops its CI
 silently. This test makes that move fail instead.
 
-Semantics are dorny/paths-filter's: picomatch 2 with `{dot: true}`, the default
-`some` quantifier, paths relative to the repository root. Python matches with
+Semantics are ci/paths_filter.py's, as dorny/paths-filter's were: picomatch 2
+with `{dot: true}`, any pattern of a tier matching, paths relative to the
+repository root. Python matches with
 wcmatch (`GLOBSTAR | DOTGLOB`), which agrees with picomatch on the grammar this
 file pins (`test_patterns_stay_in_the_grammar_both_matchers_share`); where node
 and a picomatch 2 are installed, `test_wcmatch_agrees_with_picomatch` checks

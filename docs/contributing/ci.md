@@ -22,7 +22,8 @@ Everything else (`claude.yml`, `claude-code-review.yml`, `labels.yml`) is assist
 The `changes` job (named **Plan**) answers three questions before any check
 starts, and every other job reads its answers.
 
-**1. What did this change touch?** `dorny/paths-filter` over
+**1. What did this change touch?** [`ci/paths_filter.py`](../../ci/paths_filter.py)
+(`task ci:changes` locally) over
 [`.github/filters.yml`](../../.github/filters.yml), against a base:
 
 - a pull request diffs against its base branch, the whole PR on every push;
@@ -36,7 +37,9 @@ change merges untested. [`tests/test_ci_filter_coverage.py`](../../tests/test_ci
 fails on any tracked path outside every test tier unless its `UNFILTERED` list
 says why no tier needs it; moving a directory without moving its filter line
 turns Repo checks red. It matches with wcmatch and checks that against
-picomatch, which is what `dorny/paths-filter` uses, wherever node is installed.
+picomatch wherever node is installed: the script follows picomatch, as
+`dorny/paths-filter` did before it, and `tests/test_paths_filter.py` holds it
+to both.
 
 The second rule is what makes the rest safe. A push that diffed only against
 its parent let a red commit's tier stop running as soon as an unrelated commit

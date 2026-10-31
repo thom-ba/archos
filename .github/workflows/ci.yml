@@ -135,32 +135,26 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 ci/reuse_green_run.py ci-green
 
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+      # What each tier means and why it is wide: .github/filters.yml. The
+      # script is what `task ci:changes` runs; called directly here, because
+      # every job waits for this one and it needs nothing but python3.
+      - name: Tiers this change touches
         id: filter
         if: steps.reuse.outputs.hit != 'true'
-        with:
-          # What each tier means and why it is wide: .github/filters.yml
-          filters: .github/filters.yml
-          # Empty token -> git diff, so `base` is honoured on pull_request too.
-          token: ''
-          base: ${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}
+        run: python3 ci/paths_filter.py --base "$BASE"
 
-      # A pull request builds an image when it changes what goes into it. A push
-      # builds one when GHCR has no image with these inputs yet, whatever the
-      # diff, so a dropped run, a failed build or a new week costs a rebuild and
-      # never a missing image.
+      # A pull request builds what it changes, a push what GHCR lacks:
+      # ci/plan_images.sh says why.
       - name: Images this run must build
         id: images
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          . ci/git_auth.sh
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            python3 ci/image_inputs.py plan --base "$BASE"
-          else
-            python3 ci/image_inputs.py plan --registry "$GITHUB_REPOSITORY_OWNER"
-          fi
+          REGISTRY_OWNER: ${{ github.repository_owner }}
+        run: bash ci/plan_images.sh
 
       - name: Tests this change reaches
         id: pysel
