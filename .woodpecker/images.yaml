@@ -6,13 +6,18 @@ when:
   - event: pull_request
     branch: [develop, "release/**", "claude/**"]
 
+# The agents that take it: docs/contributing/woodpecker.md, "Agents".
+labels:
+  pool: build
+
 matrix:
   NAME: [backend, frontend, web]
 
 steps:
   - name: build
     image: docker:29-cli
-    # The host's daemon: the repository needs the "volumes" trust.
+    # The host's daemon: the repository needs the "volumes" trust, and the
+    # step is root on its agent's host, hence a pool of its own.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     commands:

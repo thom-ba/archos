@@ -12,6 +12,10 @@ when:
   - event: manual
     branch: develop
 
+# The agents that take it: docs/contributing/woodpecker.md, "Agents".
+labels:
+  pool: deploy
+
 # Full history: resolve-image-refs.sh walks develop's first-parent line, and
 # its downgrade guard asks whether the deployed commit is an ancestor.
 clone:

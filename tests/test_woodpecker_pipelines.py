@@ -140,6 +140,18 @@ def test_the_image_matrix_is_every_image_ci_builds():
     assert sorted(names) == sorted(image.name for image in image_inputs.IMAGES)
 
 
+def test_each_pipeline_names_its_agent_pool_and_only_the_build_pool_mounts_the_host():
+    # A step that mounts the Docker socket is root on its agent's host, so it
+    # never shares an agent with the deploy, nor the CI agents with either.
+    expected = {"images": "build", "deploy-dev": "deploy"}
+    for path in PIPELINES:
+        pipeline = _load(path)
+        pool = pipeline.get("labels", {}).get("pool")
+        assert pool == expected.get(path.stem, "ci"), path.name
+        mounts = [step for step in pipeline["steps"] + pipeline.get("services", []) if step.get("volumes")]
+        assert not mounts or pool == "build", path.name
+
+
 def test_the_backend_suite_gets_the_qdrant_actions_runs():
     ci = _load(ROOT / ".github" / "workflows" / "ci.yml")
     actions_image = ci["jobs"]["backend"]["services"]["qdrant"]["image"]

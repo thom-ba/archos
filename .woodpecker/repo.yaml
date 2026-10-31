@@ -7,6 +7,10 @@ when:
   - event: push
     branch: [develop, "release/**"]
 
+# The agents that take it: docs/contributing/woodpecker.md, "Agents".
+labels:
+  pool: ci
+
 # The full, non-partial history: reno's lint walks it, and gitleaks reads
 # every commit a push has. A tagged plugin-git is trusted with the clone
 # credentials by default (WOODPECKER_PLUGINS_TRUSTED_CLONE).
