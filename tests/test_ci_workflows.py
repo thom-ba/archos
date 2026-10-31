@@ -510,6 +510,46 @@ def test_staging_deploys_only_a_green_push_run_of_this_repository(run, deploys):
     assert not evaluate(DEPLOY["jobs"]["deploy-prod"]["if"], github=github, inputs={})
 
 
+# --- Portable commands ----------------------------------------------------------
+
+TASK_LINE = re.compile(r"task (?P<name>[a-z][a-z0-9:-]*)(?: .*)?")
+SCRIPT_LINE = re.compile(r"(?:(?:python3|bash|sh|\.) )?(?P<script>ci/[\w.-]+)(?: .*)?")
+# Actions' plumbing around a command: its output kept for a later step.
+CAPTURE = re.compile(r'\w+="\$\((?P<command>.+)\)"')
+PLUMBING = re.compile(r'echo "\w+=\$\w+" >> "\$GITHUB_(?:ENV|OUTPUT)"')
+# Steps with nothing to run elsewhere. The tree marker asks GitHub's API which
+# tree a pull request run tested, for an artifact only Actions reads back.
+ACTIONS_ONLY = {("ci-ok", "Name the tree this run tested")}
+
+
+def test_every_ci_step_runs_a_task_target_or_a_ci_script():
+    # So a laptop and Woodpecker (docs/contributing/woodpecker.md) run the same
+    # commands; the YAML keeps the matrix, permissions, artifacts and summaries.
+    root = WORKFLOWS.parents[1]
+    tasks: set[str] = set()
+    for taskfile in [root / "Taskfile.yml", *sorted((root / "taskfiles").glob("*.yml"))]:
+        tasks |= set(yaml.safe_load(taskfile.read_text(encoding="utf-8")).get("tasks") or {})
+    steps = {(job, step.get("name")): step for job, spec in JOBS.items() for step in spec.get("steps", [])}
+    assert ACTIONS_ONLY <= set(steps)
+
+    stray = []
+    for (job, name), step in steps.items():
+        if "run" not in step or (job, name) in ACTIONS_ONLY:
+            continue
+        for line in step["run"].strip().splitlines():
+            command = line.strip()
+            if PLUMBING.fullmatch(command):
+                continue
+            if capture := CAPTURE.fullmatch(command):
+                command = capture["command"]
+            task = TASK_LINE.fullmatch(command)
+            script = SCRIPT_LINE.fullmatch(command)
+            if (task and task["name"] in tasks) or (script and (root / script["script"]).is_file()):
+                continue
+            stray.append(f"{job}: {line.strip()}")
+    assert not stray, f"make these a task target or a ci/ script: {stray}"
+
+
 @pytest.mark.parametrize("workflow", sorted(path.name for path in WORKFLOWS.glob("*.yml")))
 def test_every_job_has_a_timeout(workflow):
     # GitHub's default is 360 minutes. Runner slots are capped, so one hung job
