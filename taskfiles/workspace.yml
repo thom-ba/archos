@@ -139,6 +139,19 @@ tasks:
       # (`app/app/(shell)/…`) is a syntax error to the shell unquoted.
       - TZ=UTC bunx vitest related --run {{range splitList " " .FILES}}{{shellQuote .}} {{end}}--shard={{.SHARD}} --passWithNoTests --reporter=default{{if .GITHUB_ACTIONS}} --reporter=github-actions{{end}}
 
+  # The workspace-test job of ci.yml on a selection: the changed files
+  # ci/pr_selection.py wrote (`ui_files`, env FILES_JSON).
+  ci:workspace:related:
+    desc: 'CI, pull requests: workspace:test:related over the selection''s files (SHARD=1/8, env FILES_JSON)'
+    requires:
+      vars: [SHARD]
+    vars:
+      FILES:
+        sh: python3 ci/selected_files.py
+    cmds:
+      - task: workspace:test:related
+        vars: {SHARD: '{{.SHARD}}', FILES: '{{.FILES}}'}
+
   workspace:test:merge:
     desc: Merge sharded blob reports into one result + the coverage CI comments on
     dir: '{{.UI}}'

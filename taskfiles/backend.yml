@@ -62,7 +62,8 @@ tasks:
         tests/test_release_notes.py tests/test_pr_closing_keywords.py tests/test_bun_version_pin.py
         tests/test_pr_selection.py tests/test_ci_filter_coverage.py packages/agent/tests/test_product_framing.py
         tests/test_repo_layout.py tests/test_ci_filter_reads.py tests/test_build_image.py
-        tests/test_woodpecker_pipelines.py tests/test_deploy_dev.py
+        tests/test_woodpecker_pipelines.py tests/test_deploy_dev.py tests/test_paths_filter.py
+        tests/test_selected_files.py
 
   be:test:sources:
     desc: The Python packages' suites (packages/knowledge-layer, ris-adapter, tavily-web-search)
@@ -102,6 +103,19 @@ tasks:
       # which coverage cannot connect to the change.
       - cmd: '"{{.PY}}" -X faulthandler -m pytest {{.EXTRA}} -q {{.XDIST}}'
         if: '[ -n "{{.EXTRA}}" ]'
+
+  # The backend-affected job of ci.yml: the selection, and the test files
+  # ci/pr_selection.py named for this suite (`py_extra`, env FILES_JSON).
+  ci:backend:affected:
+    desc: 'CI, pull requests: be:test:affected with the files the selection named (SUITE=…, SHARD=…, env FILES_JSON)'
+    requires:
+      vars: [SUITE]
+    vars:
+      EXTRA:
+        sh: python3 ci/selected_files.py --suite {{.SUITE}} --shard '{{.SHARD}}'
+    cmds:
+      - task: be:test:affected
+        vars: {SUITE: '{{.SUITE}}', SHARD: '{{.SHARD}}', EXTRA: '{{.EXTRA}}'}
 
   be:test:migration:
     desc: The Chroma exporter and the whole move (exporter, importer, Qdrant), in a throwaway chromadb environment

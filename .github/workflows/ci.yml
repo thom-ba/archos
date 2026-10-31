@@ -540,15 +540,8 @@ jobs:
         env:
           SUITE: ${{ matrix.suite }}
           SHARD: ${{ matrix.shard && format('{0}/4', matrix.shard) || '' }}
-          EXTRA_JSON: ${{ needs.changes.outputs.py_extra }}
-        run: |
-          # The named test files that belong to this suite, in its first shard.
-          case "$SUITE" in core) root='^(tests|evals)/' ;; api) root='^apps/agent-host/tests/' ;; sources) root='^packages/(knowledge-layer|ris-adapter|tavily-web-search)/' ;; esac
-          extra=""
-          if [ -z "$SHARD" ] || [ "${SHARD%%/*}" = 1 ]; then
-            extra="$(jq -r --arg root "$root" '[.[] | select(test($root))] | join(" ")' <<<"$EXTRA_JSON")"
-          fi
-          task be:test:affected SUITE="$SUITE" SHARD="$SHARD" EXTRA="$extra"
+          FILES_JSON: ${{ needs.changes.outputs.py_extra }}
+        run: task ci:backend:affected SUITE="$SUITE" SHARD="$SHARD"
       # Saved red or green: a failed test is recorded as failed and re-runs.
       - name: Keep this pull request's database for its next push
         if: always() && steps.affected.outcome != 'skipped' && !matrix.shard
@@ -689,7 +682,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}/8
           FILES_JSON: ${{ needs.changes.outputs.ui_files }}
-        run: task workspace:test:related SHARD="$SHARD" FILES="$(jq -r 'join(" ")' <<<"$FILES_JSON")"
+        run: task ci:workspace:related SHARD="$SHARD"
       # Coverage is collected per shard and merged below: a shard only loads
       # its own slice of the app. Uploaded even when the shard failed, because
       # the merged report is where a reviewer looks.
