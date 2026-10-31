@@ -33,6 +33,19 @@ def load(name: str) -> dict:
     return data
 
 
+def _ci_task_script(task: str) -> str:
+    """The text of the ci/ script a `task ci:*` target of taskfiles/repo.yml runs.
+
+    The repo job calls these targets so any CI runs the same logic; the
+    behaviour this file pins lives in the script, not the workflow.
+    """
+    root = WORKFLOWS.parents[1]
+    tasks = yaml.safe_load((root / "taskfiles" / "repo.yml").read_text(encoding="utf-8"))["tasks"]
+    (cmd,) = tasks[task]["cmds"]
+    assert cmd.startswith("bash ci/"), cmd
+    return (root / cmd.removeprefix("bash ")).read_text(encoding="utf-8")
+
+
 class Ctx(dict):
     """An expression context: dotted access, and a falsy empty value for anything unset, like Actions."""
 
@@ -385,19 +398,24 @@ def test_the_engine_job_runs_on_its_own_tier():
 def test_a_push_lints_its_release_notes_and_a_pull_request_must_add_one():
     steps = JOBS["repo"]["steps"]
     lint = next(step for step in steps if step.get("name") == "Release notes (lint)")
-    require = next(step for step in steps if "require_release_note.py" in step.get("run", ""))
+    require = next(step for step in steps if step.get("run") == "task ci:release-note-required")
 
     assert "if" not in lint
+    assert lint["run"] == "task ci:release-notes"
     # The house rules on every run; reno's history-walking lint whenever the
     # notes, reno's config or its pin change, and on every push.
-    assert "task release:lint:house" in lint["run"]
-    assert "task release:lint\n" in lint["run"]
-    assert "releasenotes/ Taskfile.yml taskfiles/repo.yml" in lint["run"]
+    lint_script = _ci_task_script("ci:release-notes")
+    assert "task release:lint:house" in lint_script
+    assert "task release:lint\n" in lint_script
+    assert "releasenotes/ Taskfile.yml taskfiles/repo.yml" in lint_script
     assert evaluate(require["if"], github={"event_name": "pull_request"})
     assert not evaluate(require["if"], github={"event_name": "push"})
     # The label is read live, so labelling and re-running is enough.
     assert "labels.*.name" not in require["if"]
-    assert "no-release-note" in require["run"]
+    assert set(require["env"]) >= {"GH_TOKEN", "PR_NUMBER", "BASE_SHA", "HEAD_SHA"}
+    require_script = _ci_task_script("ci:release-note-required")
+    assert "no-release-note" in require_script
+    assert "ci/require_release_note.py" in require_script
 
 
 def test_a_pull_requests_repo_checks_fetch_only_down_to_the_merge_base():
@@ -417,7 +435,7 @@ def test_a_pull_requests_repo_checks_fetch_only_down_to_the_merge_base():
     readers = [
         i
         for i, step in enumerate(steps)
-        if "require_release_note.py" in step.get("run", "") or "gitleaks" in step.get("run", "")
+        if step.get("run") in ("task ci:release-note-required", "task ci:secrets")
     ]
     assert readers and min(readers) > 1
 
@@ -438,12 +456,13 @@ def test_the_pr_secret_scan_reads_only_the_history_under_test():
     # A full-depth checkout fetches every branch, and gitleaks scans `--all`
     # unless told otherwise, so one PR's fixture used to fail everyone's run.
     # A pull request reads the commits it adds; a push its own history.
-    scan = next(step for step in JOBS["repo"]["steps"] if "gitleaks" in step.get("run", ""))
+    scan = next(step for step in JOBS["repo"]["steps"] if step.get("run") == "task ci:secrets")
+    script = _ci_task_script("ci:secrets")
 
     assert scan["env"]["BASE_SHA"] == "${{ github.event.pull_request.base.sha }}"
-    assert 'range="$BASE_SHA..HEAD"' in scan["run"]
-    assert 'range="--full-history HEAD"' in scan["run"]
-    assert '--log-opts="$range"' in scan["run"]
+    assert 'range="$BASE_SHA..HEAD"' in script
+    assert 'range="--full-history HEAD"' in script
+    assert script.count('--log-opts="$range"') == 2  # the binary and the container
 
 
 def test_security_is_surveillance_and_the_gate_lives_in_ci():

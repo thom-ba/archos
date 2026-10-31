@@ -151,6 +151,24 @@ tasks:
     cmds:
       - '{{.RELNOTES}} publish {{.CLI_ARGS}}'
 
+  # The Repo checks job's own logic, so any CI runs it as one `task` call
+  # (GitHub Actions in ci.yml, Woodpecker in .woodpecker/). The scripts say
+  # which env each reads; BASE_SHA empty means a push.
+  ci:release-notes:
+    desc: 'CI: lint the release notes, the history-walking lint only when they changed (env BASE_SHA)'
+    cmds:
+      - bash ci/release_notes_lint.sh
+
+  ci:release-note-required:
+    desc: 'CI, pull requests: a note unless labelled no-release-note (env BASE_SHA, HEAD_SHA, PR_LABELS or PR_NUMBER)'
+    cmds:
+      - bash ci/release_note_required.sh
+
+  ci:secrets:
+    desc: 'CI: gitleaks over the commits the change adds, or the whole history on a push (env BASE_SHA)'
+    cmds:
+      - bash ci/secret_scan.sh
+
   lint:repo:
     desc: pre-commit across the whole repo, plus the agent-skill lockfile — the same scope CI lints
     cmds:
