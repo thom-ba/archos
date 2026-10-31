@@ -203,6 +203,21 @@ tasks:
     cmds:
       - sh ci/semgrep_scan.sh
 
+  # The Image vulns job: the digest pins a change adds or moves, then trivy on
+  # them. Needs docker, or trivy at the script's version on PATH (the
+  # aquasec/trivy image a Woodpecker step runs in).
+  ci:trivy:
+    desc: 'CI: trivy on the image pins the change adds or moves, BASE_SHA..HEAD; every pin when BASE_SHA is empty (env BASE_SHA)'
+    cmds:
+      - task: ci:trivy:pins
+      - sh ci/trivy_scan.sh .trivy-cache/pins.txt
+
+  ci:trivy:pins:
+    desc: 'CI: the image pins the change adds or moves, into .trivy-cache/pins.txt (env BASE_SHA)'
+    cmds:
+      - mkdir -p .trivy-cache
+      - python3 ci/pinned_images.py new "${BASE_SHA:-}" .trivy-cache/pins.txt
+
   # CI's image build, on Actions (.github/actions/build-image) and Woodpecker.
   # Needs docker with buildx; the env it reads is in ci/build_image.py.
   image:build:

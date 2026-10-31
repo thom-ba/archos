@@ -893,27 +893,29 @@ jobs:
     if: needs.changes.outputs.pins != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      TRIVY_VERSION: "0.61.1"
-      PINS: ${{ needs.changes.outputs.pins }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: python3 -c 'import json, os; print("\n".join(json.loads(os.environ["PINS"])))' | tee pins.txt
+      # The pins the Plan job found, so this job needs no history. `task
+      # ci:trivy` finds them itself and then scans.
+      - env:
+          PINS: ${{ needs.changes.outputs.pins }}
+        run: python3 ci/pinned_images.py write pins.txt
+      # Keyed on the pin set and the scan script, which pins trivy's version.
       - name: Restore the layer analysis
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .trivy-cache/fanal
-          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
-      - run: bash ci/trivy_scan.sh pins.txt
+          key: trivy-layers-${{ hashFiles('ci/trivy_scan.sh') }}-${{ hashFiles('pins.txt') }}
+      - run: sh ci/trivy_scan.sh pins.txt
       - name: Save the layer analysis
         if: always() && hashFiles('.trivy-cache/fanal/**') != ''
         continue-on-error: true
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .trivy-cache/fanal
-          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
+          key: trivy-layers-${{ hashFiles('ci/trivy_scan.sh') }}-${{ hashFiles('pins.txt') }}
 
   # A pull request proves each image it changes still builds, and pushes
   # nothing: the token is read-only, so no build here can reach the registry
