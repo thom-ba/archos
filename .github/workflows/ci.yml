@@ -318,14 +318,11 @@ jobs:
       # that fails. The full history cost ~72 s (docs/audit/blast-radius-2026-10.md §7).
       # The checkout keeps its token so that fallback fetch can run.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # p/github-actions includes the mutable-action-tag rule, so an action
-      # referenced by tag instead of commit SHA is a new finding here.
+      # The rules and the scan: ci/semgrep_scan.sh (`task ci:sast`). The
+      # script itself, as the image has no task.
       - name: Semgrep scan
-        run: >-
-          semgrep ci --json-output=semgrep.json
-          --exclude-rule javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
+        run: sh ci/semgrep_scan.sh
         env:
-          SEMGREP_RULES: p/default p/javascript p/typescript p/python p/secrets p/github-actions
           GH_TOKEN: ${{ github.token }}
       - name: Findings summary
         if: always()

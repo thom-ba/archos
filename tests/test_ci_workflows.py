@@ -442,9 +442,16 @@ def test_semgrep_finds_its_own_merge_base_from_a_shallow_clone():
     steps = JOBS["semgrep"]["steps"]
     checkout = steps[0]
     assert "fetch-depth" not in checkout.get("with", {})
-    scan = next(step for step in steps if "semgrep ci" in step.get("run", ""))
+    scan = next(step for step in steps if step.get("run") == "sh ci/semgrep_scan.sh")
     # The API lookup semgrep tries before deepening the clone.
     assert scan["env"]["GH_TOKEN"] == "${{ github.token }}"
+    # Off Actions the script names the base itself; on Actions semgrep does.
+    script = (WORKFLOWS.parents[1] / "ci" / "semgrep_scan.sh").read_text(encoding="utf-8")
+    assert 'if [ "${GITHUB_ACTIONS:-}" != true ] && [ -n "${BASE_SHA:-}" ]; then' in script
+    # The binary the script trusts is the image the job runs it in.
+    repository, version = JOBS["semgrep"]["container"]["image"].split(":")
+    assert f"SEMGREP_VERSION={version}\n" in script
+    assert f'"{repository}:$SEMGREP_VERSION"' in script
 
 
 # --- Security -----------------------------------------------------------------------

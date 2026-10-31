@@ -198,6 +198,11 @@ tasks:
     cmds:
       - bash ci/secret_scan.sh
 
+  ci:sast:
+    desc: 'CI, pull requests: the Semgrep findings the change introduces, BASE_SHA..HEAD (env BASE_SHA)'
+    cmds:
+      - sh ci/semgrep_scan.sh
+
   # CI's image build, on Actions (.github/actions/build-image) and Woodpecker.
   # Needs docker with buildx; the env it reads is in ci/build_image.py.
   image:build:
