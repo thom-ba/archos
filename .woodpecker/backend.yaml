@@ -11,10 +11,13 @@ when:
 matrix:
   SHARD: [1, 2, 3, 4]
 
-# A real Qdrant, the version production runs (ADR-0115).
+# A real Qdrant, the version production runs (ADR-0115). Woodpecker starts a
+# service in the workspace, and the image's command is ./entrypoint.sh in its
+# own workdir.
 services:
   - name: qdrant
     image: qdrant/qdrant:v1.19.2
+    directory: /qdrant
 
 steps:
   - name: core
