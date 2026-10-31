@@ -329,6 +329,21 @@ tasks:
       - '{{.PY}} -m coverage xml -o coverage.xml'
       - '{{.PY}} -m coverage report --fail-under=65'
 
+  be:test:coverage:ci:
+    desc: be:test:coverage without a venv, as CI's coverage job runs it (needs only uv and the shards' data)
+    # One multi-line command: stop at the first failing line, as the workflow
+    # step's bash did.
+    set: [errexit, pipefail]
+    cmds:
+      # The coverage the lockfile pins, the version the shards ran, on the
+      # shards' interpreter: coverage re-parses every source file, and a
+      # runner's own 3.12 cannot read 3.14 syntax (`except A, B:`).
+      - |
+        coverage="coverage==$(uv export --frozen --only-group dev --no-hashes --no-emit-workspace | sed -n 's/^coverage==\([^ ;]*\).*/\1/p')"
+        uvx --python 3.14 --from "$coverage" coverage combine --keep .coverage.shard*
+        uvx --python 3.14 --from "$coverage" coverage xml -o coverage.xml
+        uvx --python 3.14 --from "$coverage" coverage report --fail-under=65
+
   be:test:durations:
     desc: Re-record the core suite's per-test times that be:test:shard splits by
     cmds:
