@@ -1,0 +1,25 @@
+# The image builds of a pull request, the `image` job of
+# .github/workflows/ci.yml on Woodpecker (pilot, docs/contributing/woodpecker.md):
+# each image built, nothing pushed. Not yet here: the push to GHCR and the
+# change filter that builds only the images a change touches.
+when:
+  - event: pull_request
+    branch: [develop, "release/**", "claude/**"]
+
+# The agents that take it: docs/contributing/woodpecker.md, "Agents".
+labels:
+  pool: build
+
+matrix:
+  NAME: [backend, frontend, web]
+
+steps:
+  - name: build
+    image: docker:29-cli
+    # The host's daemon: the repository needs the "volumes" trust, and the
+    # step is root on its agent's host, hence a pool of its own.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    commands:
+      - sh ci/woodpecker_setup.sh
+      - task image:build NAME=${NAME}

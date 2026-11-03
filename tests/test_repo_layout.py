@@ -31,6 +31,7 @@ TARGET = frozenset(
         ".claude",
         ".devcontainer",
         ".github",
+        ".woodpecker",
         "apps",
         "ci",
         "configs",

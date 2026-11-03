@@ -278,14 +278,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if [ -n "$BASE_SHA" ] && git diff --quiet "$BASE_SHA...HEAD" -- releasenotes/ Taskfile.yml taskfiles/repo.yml; then
-            echo "No change to the notes, reno's config or its pin: house rules only."
-            task release:lint:house
-          else
-            . ci/git_auth.sh
-            task release:lint
-          fi
+        run: task ci:release-notes
       # AGENTS.md: a change a customer can notice ships with its note. The
       # escape hatch is the `no-release-note` label, read from the PR as it is
       # NOW rather than from the event payload: a re-run replays the payload, so
@@ -298,12 +291,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.labels[].name' | grep -qx 'no-release-note'; then
-            echo "Labelled no-release-note: no note required."
-            exit 0
-          fi
-          python3 ci/require_release_note.py "$BASE_SHA" "$HEAD_SHA"
+        run: task ci:release-note-required
       # Every commit the change adds, not only its final diff, so a secret is
       # caught in the commit that added it even when a later one deletes it.
       # On a pull request that is base..HEAD: the commits under the base were
@@ -315,13 +303,7 @@ jobs:
       - name: Secret scan (gitleaks)
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          range="--full-history HEAD"
-          if [ -n "$BASE_SHA" ]; then range="$BASE_SHA..HEAD"; fi
-          docker run --rm -v "$GITHUB_WORKSPACE:/repo" \
-            zricethezav/gitleaks:v8.30.1 detect --source /repo --redact -v \
-            --log-opts="$range"
-
+        run: task ci:secrets
   # Diff-aware: `semgrep ci` on a pull request reports only findings the change
   # introduces, so it blocks a new finding without failing on the backlog. A
   # push has nothing new to find that its pull request did not, and the
@@ -426,14 +408,9 @@ jobs:
         with:
           pattern: backend-coverage-*
           merge-multiple: true
+      - uses: ./.github/actions/setup-task
       - name: Combine the shards and apply the gate
-        run: |
-          coverage="coverage==$(uv export --frozen --only-group dev --no-hashes --no-emit-workspace | sed -n 's/^coverage==\([^ ;]*\).*/\1/p')"
-          # The shards' interpreter: coverage re-parses every source file, and
-          # the runner's own 3.12 cannot read 3.14 syntax (`except A, B:`).
-          uvx --python 3.14 --from "$coverage" coverage combine --keep .coverage.shard*
-          uvx --python 3.14 --from "$coverage" coverage xml -o coverage.xml
-          uvx --python 3.14 --from "$coverage" coverage report --fail-under=65
+        run: task be:test:coverage:ci
       - name: Coverage comment (backend)
         if: github.event_name == 'pull_request'
         continue-on-error: true # never fail CI on a comment hiccup
@@ -983,10 +960,6 @@ jobs:
       - uses: ./.github/actions/build-image
         with:
           name: ${{ matrix.name }}
-          context: ${{ matrix.context }}
-          dockerfile: ${{ matrix.dockerfile }}
-          target: ${{ matrix.target }}
-          repository: ${{ matrix.repository }}
           hash: ${{ matrix.hash }}
           registry: ${{ env.REGISTRY }}
 
@@ -1014,10 +987,6 @@ jobs:
       - uses: ./.github/actions/build-image
         with:
           name: ${{ matrix.name }}
-          context: ${{ matrix.context }}
-          dockerfile: ${{ matrix.dockerfile }}
-          target: ${{ matrix.target }}
-          repository: ${{ matrix.repository }}
           hash: ${{ matrix.hash }}
           registry: ${{ env.REGISTRY }}
           push: "true"

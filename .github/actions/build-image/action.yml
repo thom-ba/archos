@@ -2,23 +2,14 @@ name: Build image
 description: >-
   Build one of the three images (backend, frontend, web) from an entry of the
   plan `ci/image_inputs.py` writes, and push it under its content tag
-  `inputs-<hash>` when asked to. The commit's own tags (`sha-<commit>`,
-  `latest`) are never set here: CI's publish job adds them once every check on
-  the commit has passed.
+  `inputs-<hash>` when asked to, through `task image:build` / `image:push`
+  (ci/build_image.py), the build Woodpecker runs too. The commit's own tags
+  (`sha-<commit>`, `latest`) are never set here: CI's publish job adds them
+  once every check on the commit has passed.
 
 inputs:
   name:
     description: backend, frontend or web
-    required: true
-  context:
-    required: true
-  dockerfile:
-    required: true
-  target:
-    required: false
-    default: ""
-  repository:
-    description: The GHCR repository, e.g. grid-oib-backend
     required: true
   hash:
     description: The input hash from the plan
@@ -66,68 +57,47 @@ runs:
         username: ${{ github.actor }}
         password: ${{ github.token }}
 
+    - uses: ./.github/actions/setup-task
+
+    # The OCI labels from the repository GitHub knows (title, description,
+    # source, licenses) plus created, revision and version. No `images`: the
+    # tag is ci/build_image.py's.
     - name: Labels
       id: meta
       uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
       with:
-        images: ${{ inputs.registry }}/${{ inputs.repository }}
         tags: type=raw,value=inputs-${{ inputs.hash }}
 
-    # Source maps go to PostHog from the frontend build, the one that has a
-    # bundle for a browser to run, and only when both halves are configured.
-    # Anything missing leaves the build exactly as it was before this existed:
-    # no extra build arg (the other two Dockerfiles do not declare it, and an
-    # unused arg is a warning), no secret.
-    - name: Build arguments
-      id: args
+    # ci/build_image.py's docstring says why the layer cache is in GHCR, and why
+    # only a push writes it. Rather than type=gha: three mode=max caches
+    # (3-5 GB) LRU-evicted each other and every other cache out of the
+    # repository's 10 GB Actions budget, and re-exporting them through the cache
+    # API left publishes hanging for half an hour.
+    #
+    # GIT_SHA is the commit that BUILT the image. An image whose inputs did not
+    # change is not rebuilt, only re-tagged, so a container reports the commit
+    # its code came from, which is the one worth reading in a pilot report. It is
+    # also the PostHog release of the frontend's source maps, so an error's
+    # release is the commit the running container names.
+    #
+    # PROVENANCE is the attestation docker/build-push-action added before this
+    # step ran the task: max for a public repository, min for a private one,
+    # with the run as builder id.
+    #
+    # The PostHog key goes straight from the input to the environment, where
+    # buildx reads it as a BuildKit secret; a step output may refuse to carry a
+    # value the runner knows to be a secret. Source maps go to PostHog from the
+    # frontend build only, and only when both halves are configured.
+    - name: Build${{ inputs.push == 'true' && ' and push' || '' }}
       shell: bash
       env:
+        TARGET: ${{ inputs.push == 'true' && 'image:push' || 'image:build' }}
         IMAGE_NAME: ${{ inputs.name }}
+        IMAGE_HASH: ${{ inputs.hash }}
+        REGISTRY: ${{ inputs.registry }}
+        GIT_SHA: ${{ github.sha }}
+        IMAGE_LABELS: ${{ steps.meta.outputs.labels }}
+        PROVENANCE: ${{ github.event.repository.private && 'mode=min,inline-only=true' || 'mode=max' }},builder-id=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
         POSTHOG_API_KEY: ${{ inputs.posthog-api-key }}
         POSTHOG_PROJECT_ID: ${{ inputs.posthog-project-id }}
-      run: |
-        {
-          echo "list<<EOF"
-          echo "GIT_SHA=$GITHUB_SHA"
-          # Arguments that are part of the image, and of its input hash (the web image's
-          # PUBLIC_SITE_URL, from the prod stack's baseDomain): ci/image_inputs.py build-args.
-          python3 ci/image_inputs.py build-args "$IMAGE_NAME"
-          if [ "$IMAGE_NAME" = frontend ] && [ -n "$POSTHOG_API_KEY" ] && [ -n "$POSTHOG_PROJECT_ID" ]; then
-            echo "POSTHOG_PROJECT_ID=$POSTHOG_PROJECT_ID"
-          fi
-          echo "EOF"
-        } >> "$GITHUB_OUTPUT"
-
-    # Layer cache in GHCR, one `buildcache` tag per image, rather than type=gha:
-    # three mode=max caches (3-5 GB) LRU-evicted each other and every other
-    # cache out of the repository's 10 GB Actions budget, and re-exporting them
-    # through the cache API left publishes hanging for half an hour.
-    #
-    # Written only by a push build. A pull request build reads it and writes
-    # nothing, so a pull request can never put a layer into the cache that the
-    # next publish imports without it appearing in any diff. `mode=max` because
-    # the layer worth reusing is the dependency install in an intermediate
-    # stage; `image-manifest`/`oci-mediatypes` because GHCR rejects the legacy
-    # cache manifest.
-    #
-    # GIT_SHA (set above) is the commit that BUILT the image. An image whose
-    # inputs did not change is not rebuilt, only re-tagged, so a container reports
-    # the commit its code came from, which is the one worth reading in a pilot
-    # report. It is also the PostHog release of the frontend's source maps, so an
-    # error's release is the commit the running container names.
-    - name: Build${{ inputs.push == 'true' && ' and push' || '' }}
-      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-      with:
-        context: ${{ inputs.context }}
-        file: ${{ inputs.dockerfile }}
-        target: ${{ inputs.target }}
-        push: ${{ inputs.push == 'true' }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        build-args: ${{ steps.args.outputs.list }}
-        # A BuildKit secret mount, so the key is in no layer and no build arg.
-        # Straight from the input rather than through a step output, which the
-        # runner may refuse to carry for a value it knows to be a secret.
-        secrets: ${{ inputs.name == 'frontend' && inputs.posthog-api-key != '' && inputs.posthog-project-id != '' && format('posthog_cli_api_key={0}', inputs.posthog-api-key) || '' }}
-        cache-from: type=registry,ref=${{ inputs.registry }}/${{ inputs.repository }}:buildcache
-        cache-to: ${{ inputs.push == 'true' && format('type=registry,ref={0}/{1}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true', inputs.registry, inputs.repository) || '' }}
+      run: task "$TARGET" NAME="$IMAGE_NAME"

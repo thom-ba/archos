@@ -1,0 +1,37 @@
+# The backend core suite in four shards, the `backend` job of
+# .github/workflows/ci.yml on Woodpecker (pilot, docs/contributing/woodpecker.md).
+# Not yet here: the coverage gate over the shards (workflows share no files)
+# and the change filter that skips a run without backend changes.
+when:
+  - event: pull_request
+    branch: [develop, "release/**", "claude/**"]
+  - event: push
+    branch: [develop, "release/**"]
+
+# The agents that take it: docs/contributing/woodpecker.md, "Agents".
+labels:
+  pool: ci
+
+matrix:
+  SHARD: [1, 2, 3, 4]
+
+# A real Qdrant, the version production runs (ADR-0115). Woodpecker starts a
+# service in the workspace, and the image's command is ./entrypoint.sh in its
+# own workdir.
+services:
+  - name: qdrant
+    image: qdrant/qdrant:v1.19.2
+    directory: /qdrant
+
+steps:
+  - name: core
+    image: node:22-bookworm
+    environment:
+      QDRANT_TEST_URL: http://qdrant:6333
+      # `-n logical` counts the agent host's cores (psutil ignores the step's
+      # CPU limit): on a 32-core host, 32 workers outgrew 16 GiB. Four, as on
+      # GitHub's runners.
+      PYTEST_XDIST_AUTO_NUM_WORKERS: 4
+    commands:
+      - sh ci/woodpecker_setup.sh python
+      - task be:test:shard SHARD=${SHARD}/4

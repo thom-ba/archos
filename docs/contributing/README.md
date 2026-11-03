@@ -9,6 +9,7 @@ holds the depth behind it.
 |---|---|
 | [working-style.md](working-style.md) | The cases behind each working-style rule in `AGENTS.md`: what it cost before it was written down |
 | [ci.md](ci.md) | What CI is for, how a run decides what to run, how images reach a deploy, and why each rule exists |
+| [woodpecker.md](woodpecker.md) | The Woodpecker pilot beside Actions: what its pipelines run, the dev-only deploy, how to run it and its secrets, what is missing |
 | [definition-of-done.md](definition-of-done.md) | The bar a change clears before anyone calls it done: the baseline, what to show per kind of change, the revert-check, the closing checklist |
 | [testing-and-verification.md](testing-and-verification.md) | `task verify` as the merge gate, which task to run while iterating, and the traps the task list cannot tell you about |
 | [naming.md](naming.md) | How to name anything: the explain test, no brand in a name, English only, casing per family, one word per concept, renaming a stored or external name, terms under review |

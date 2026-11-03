@@ -1,0 +1,29 @@
+# The workspace suite in eight shards, the `workspace-test` job of
+# .github/workflows/ci.yml on Woodpecker (pilot, docs/contributing/woodpecker.md).
+# Not yet here: the coverage merge over the shards (workflows share no files),
+# the related-specs run and the change filter.
+when:
+  - event: pull_request
+    branch: [develop, "release/**", "claude/**"]
+  - event: push
+    branch: [develop, "release/**"]
+
+# The agents that take it: docs/contributing/woodpecker.md, "Agents".
+labels:
+  pool: ci
+
+matrix:
+  SHARD: [1, 2, 3, 4, 5, 6, 7, 8]
+
+steps:
+  - name: test
+    image: node:22-bookworm
+    environment:
+      # Docker sets HOSTNAME to the container id, and server.js listens on
+      # HOSTNAME, so the gateway tests' server would not answer on 127.0.0.1.
+      # An Actions runner leaves it unset and server.js takes 0.0.0.0.
+      HOSTNAME: 0.0.0.0
+    commands:
+      - sh ci/woodpecker_setup.sh bun
+      - task workspace:install
+      - task workspace:test:shard SHARD=${SHARD}/8

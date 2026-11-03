@@ -1,0 +1,54 @@
+# Repo checks, the `repo` job of .github/workflows/ci.yml on Woodpecker (pilot,
+# docs/contributing/woodpecker.md). Every command is the tool setup or one
+# `task` target: the logic lives in taskfiles/ and ci/, shared with Actions.
+when:
+  - event: pull_request
+    branch: [develop, "release/**", "claude/**"]
+  - event: push
+    branch: [develop, "release/**"]
+
+# The agents that take it: docs/contributing/woodpecker.md, "Agents".
+labels:
+  pool: ci
+
+# The full, non-partial history: reno's lint walks it, and gitleaks reads
+# every commit a push has. A tagged plugin-git is trusted with the clone
+# credentials by default (WOODPECKER_PLUGINS_TRUSTED_CLONE).
+clone:
+  - name: clone
+    image: woodpeckerci/plugin-git:2.11.0
+    settings:
+      depth: 0
+      partial: false
+
+# No secret in any step: the checks run the repository's own hooks and tests,
+# and the repository is public, so the base fetch needs no token.
+steps:
+  # A pull request's base, which Woodpecker names only as a branch. A private
+  # repository adds its read-only fetch token to this step alone
+  # (docs/contributing/woodpecker.md, "Secrets").
+  - name: base
+    image: node:22-bookworm
+    when:
+      - event: pull_request
+    commands:
+      - sh ci/woodpecker_fetch_base.sh
+
+  - name: checks
+    image: node:22-bookworm
+    environment:
+      # Ruff runs once, in be:lint.
+      SKIP: ruff-check,ruff-format
+    commands:
+      - sh ci/woodpecker_setup.sh python gitleaks
+      - . ci/woodpecker_env.sh
+      - task ci:repo
+
+  - name: release-note-required
+    image: node:22-bookworm
+    when:
+      - event: pull_request
+    commands:
+      - sh ci/woodpecker_setup.sh python
+      - . ci/woodpecker_env.sh
+      - task ci:release-note-required
