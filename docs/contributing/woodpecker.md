@@ -239,6 +239,9 @@ they carry a `nosemgrep`), `node:22-bookworm` has no `jq` for the infra tests'
 
 ## What is missing
 
+- **The Hatchet job.** `ci.yml`'s `hatchet` job has no pipeline. It starts its
+  containers through Docker (`ci/hatchet_engine.sh`), so it needs the `build` pool;
+  its `ci:hatchet:*` targets are ready for one.
 - **A server.** The repository has no Woodpecker server, and adding one to it
   needs its admins (webhook, OAuth app). The runs above used `exec`, so no
   webhook, status check, secret store or pull request approval was exercised.

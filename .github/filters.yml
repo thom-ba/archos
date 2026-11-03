@@ -384,6 +384,7 @@ hatchet:
   - 'ci/hatchet_engine.sh'
   - 'deploy/pulumi/src/config/background-work.ts'
   - 'Taskfile.yml'
+  - 'taskfiles/backend.yml'
   - 'taskfiles/workspace.yml'
   - '.github/workflows/ci.yml'
   - '.github/filters.yml'

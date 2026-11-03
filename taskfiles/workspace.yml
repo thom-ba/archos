@@ -152,6 +152,22 @@ tasks:
       - task: workspace:test:related
         vars: {SHARD: '{{.SHARD}}', FILES: '{{.FILES}}'}
 
+  # ci.yml's Hatchet job: each BFF job suite over the migrated database as the
+  # restricted role, one cluster per file. `|| exit 1` because task's shell does
+  # not stop a loop on a failed command as `bash -e` does.
+  ci:hatchet:bff:
+    desc: 'CI: the BFF job suites on a Hatchet engine and a real Postgres (REPORTS=<dir>)'
+    dir: '{{.UI}}'
+    requires:
+      vars: [REPORTS]
+    cmds:
+      - |
+        for spec in bff/*/orchestrator.integration.spec.ts; do
+          area="${spec#bff/}"; area="${area%%/*}"
+          bash ../../scripts/rls-test-db.sh --only "$spec" \
+            --reporter=default --reporter=junit --outputFile.junit="{{.REPORTS}}/hatchet-bff-$area.xml" || exit 1
+        done
+
   workspace:test:merge:
     desc: Merge sharded blob reports into one result + the coverage CI comments on
     dir: '{{.UI}}'

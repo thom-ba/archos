@@ -849,30 +849,18 @@ jobs:
       - name: Ingest workflow on the engine (Python)
         if: ${{ !cancelled() && steps.engine.outcome == 'success' }}
         timeout-minutes: 8
-        run: >-
-          .venv/bin/python -X faulthandler -m pytest -q -rA -o faulthandler_timeout=150
-          packages/agent/tests/knowledge/test_ingest_workflow_engine.py
-          --junitxml="$RUNNER_TEMP/hatchet-ingest.xml"
+        run: task ci:hatchet:ingest REPORTS="$RUNNER_TEMP"
       - name: Research run on the engine (Python, worker subprocesses)
         if: ${{ !cancelled() && steps.engine.outcome == 'success' }}
         timeout-minutes: 8
-        run: >-
-          .venv/bin/python -X faulthandler -m pytest -q -rA -o faulthandler_timeout=150
-          apps/agent-host/tests/test_research_workflow_engine.py
-          --junitxml="$RUNNER_TEMP/hatchet-research.xml"
+        run: task ci:hatchet:research REPORTS="$RUNNER_TEMP"
       # Over the migrated database as the restricted role, which the RLS script
       # builds (`--only`). One cluster per file: the BFF's job and scheduler
       # suites take from whole tables, so they never share one. The glob picks
       # up a new `bff/<area>/orchestrator.integration.spec.ts` without an edit here.
       - name: BFF jobs on the engine (TypeScript, real Postgres)
         if: ${{ !cancelled() && steps.engine.outcome == 'success' }}
-        working-directory: apps/workspace
-        run: |
-          for spec in bff/*/orchestrator.integration.spec.ts; do
-            area="${spec#bff/}"; area="${area%%/*}"
-            bash ../../scripts/rls-test-db.sh --only "$spec" \
-              --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/hatchet-bff-$area.xml"
-          done
+        run: task ci:hatchet:bff REPORTS="$RUNNER_TEMP"
       # A skipped suite is green, and every one of these skips without an engine.
       - name: Every suite ran, none skipped
         if: ${{ !cancelled() && steps.engine.outcome == 'success' }}
