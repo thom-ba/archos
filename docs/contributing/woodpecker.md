@@ -3,8 +3,8 @@
 A trial of [Woodpecker CI](https://woodpecker-ci.org) beside GitHub Actions.
 Actions stays the CI and the deployer of record: nothing here changes what it
 runs. The pipelines under `.woodpecker/` call the `task` targets the Actions
-jobs call, and the aggregates `ci:repo` and `ci:workspace` run what a job's
-steps run, in their order.
+jobs call, and the aggregates (`ci:repo`, `ci:workspace`, `ci:infra`,
+`ci:packages`) run what a job's steps run, in their order.
 
 ## What runs
 
@@ -15,12 +15,20 @@ steps run, in their order.
 | `workspace.yaml` | pull request, push | `ci:workspace` (`workspace:install`, `:cards:check`, `:lint`, `:types`, `:blast-radius`) | `ci.yml` job `workspace` |
 | `workspace-test.yaml` | pull request, push | `workspace:test:shard` 1/8 to 8/8 | `ci.yml` job `workspace-test` |
 | `images.yaml` | pull request | `image:build` per image, nothing pushed | `ci.yml` job `image` |
+| `sast.yaml` | pull request | `ci:sast`'s `ci/semgrep_scan.sh` in the Semgrep image it pins, against the fetched base | `ci.yml` job `semgrep` |
+| `trivy.yaml` | pull request | `ci:trivy:pins`, then `ci:trivy`'s `ci/trivy_scan.sh` in the trivy image it pins | `ci.yml` job `trivy` |
+| `site.yaml` | pull request, push | `ci:site` | `ci.yml` job `site` |
+| `infra.yaml` | pull request, push | `ci:infra` (`infra:install`, `:types`, `:test` with otelcol-contrib) | `ci.yml` job `infra` |
+| `packages.yaml` | pull request, push | `ci:packages` (`pkg:install`, `pkg:test:ts`, `pkg:test:py`) | `ci.yml` job `packages` |
 | `deploy-dev.yaml` | manual, from `develop` | `infra:deploy:dev:prepare`, then `infra:deploy:dev:apply` | `deploy.yml` job `deploy` (staging) |
 
 A step runs `ci/woodpecker_setup.sh` (the tools the `setup-*` actions install,
 at their pins), the other `ci/woodpecker_*.sh` helpers and `task` targets,
-nothing else. `tests/test_woodpecker_pipelines.py` holds the pipelines to that
-and the aggregates to `ci.yml`'s step lists.
+nothing else. The two scans are the exception: their images have no task, so
+the step runs the one script its target runs, and the script uses the image's
+binary because its version is the one the script pins.
+`tests/test_woodpecker_pipelines.py` holds the pipelines to that, the scan
+images to the scripts' pins, and the aggregates to `ci.yml`'s step lists.
 
 The dev deploy is manual on purpose. `deploy.yml` still deploys the dev stack
 for every green `develop` push, and a second deployer on every push would race
@@ -77,7 +85,7 @@ A workflow runs only on an agent whose `WOODPECKER_AGENT_LABELS` match its
 
 | Pool | Pipelines | Agent host |
 |---|---|---|
-| `pool=ci` | `repo`, `backend`, `workspace`, `workspace-test` | any but the server's; no step mounts the socket |
+| `pool=ci` | `repo`, `backend`, `workspace`, `workspace-test`, `sast`, `trivy`, `site`, `infra`, `packages` | any but the server's; no step mounts the socket |
 | `pool=build` | `images` | its own: its steps are root on it |
 | `pool=deploy` | `deploy-dev` | its own, apart from the build host and the server |
 
@@ -213,14 +221,27 @@ a borrowed shared Linux host (32 threads, Docker 29), each step capped at
 | `workspace-test.yaml` | push | all 8 shards passed: 1 to 3 and 6 to 8 in one run, 4 and 5 again after the `HOSTNAME` fix below | 652 s for 8 | 2.9 GiB |
 | `images.yaml` | pull request | backend, frontend and web built without layer cache, tagged under `REGISTRY=archos-wp` on a buildx builder of their own, nothing pushed | 454 s for 3 | in BuildKit, not measured |
 | `deploy-dev.yaml` | manual | passed with the Pulumi CLI, the ESC check and the registry scripts stubbed and dummy secrets: every `pulumi` call named the dev stack, preview ran before up, and no secret value reached the log | 53 s | 0.3 GiB |
+| `sast.yaml` | pull request | passed, no finding, after the Semgrep fix below | 19 s | 0.1 GiB |
+| `trivy.yaml` | pull request | passed; the branch moves no pin, so it scanned none. Its `scan` step alone on one real pin (`alpine:3.22.6` by digest) found no vulnerability | 24 s; 98 s for the pin | 0.1 GiB |
+| `site.yaml` | push | passed, with the accessibility check's 80 views | 105 s | 0.6 GiB |
+| `infra.yaml` | push | 711 tests passed, after the `jq` fix below | 49 s | 1.5 GiB |
+| `packages.yaml` | push | 195 TypeScript and 636 Python tests passed | 86 s | 1.6 GiB |
 
-The runs found three pipeline bugs, fixed on this branch: Qdrant's service
+The runs found these pipeline bugs, fixed on this branch: Qdrant's service
 started outside its image's workdir, pytest-xdist started a worker per host
 core (32) and ran out of memory, and the gateway tests could not reach their
-server because Docker sets `HOSTNAME`.
+server because Docker sets `HOSTNAME`. The later five found three more: Semgrep
+blocked the `buildx` calls in `ci/build_image.py` and `ci/publish_images.py`
+(an argument list, no shell; `ci.yml`'s scan would have blocked them too, so
+they carry a `nosemgrep`), `node:22-bookworm` has no `jq` for the infra tests'
+`resolve-image-refs.sh`, and `packages.yaml` started 32 pytest workers
+(5.8 GiB, 106 s) until it got `backend.yaml`'s cap of four.
 
 ## What is missing
 
+- **The Hatchet job.** `ci.yml`'s `hatchet` job has no pipeline. It starts its
+  containers through Docker (`ci/hatchet_engine.sh`), so it needs the `build` pool;
+  its `ci:hatchet:*` targets are ready for one.
 - **A server.** The repository has no Woodpecker server, and adding one to it
   needs its admins (webhook, OAuth app). The runs above used `exec`, so no
   webhook, status check, secret store or pull request approval was exercised.
@@ -234,14 +255,25 @@ server because Docker sets `HOSTNAME`.
   shards' coverage cannot be combined as `ci.yml`'s `backend-coverage` and
   `workspace-coverage` jobs do. The gate needs the shards as parallel steps of
   one workflow, which share its workspace, and a coverage step after them.
-- **Change filters.** Every pipeline runs on every event; `ci.yml` skips a tier
-  its paths did not change (`.github/filters.yml`).
-- **The other `ci.yml` jobs** have no pipeline yet: `semgrep`,
-  `backend-suites`, `backend-affected`, `backend-testmon`, `site`, `infra`,
-  `packages`, `trivy`, and the row-level-security suite.
-- **Image push.** `task image:push` exists, and Actions' `image-push` job
-  publishes through it, but no Woodpecker pipeline calls it: `images.yaml`
-  only builds, and the images the deploy pins come from Actions.
+- **The Plan job.** Every pipeline runs on every event: `ci.yml` skips a tier
+  its paths did not change (`task ci:changes`), reuses a green pull request's
+  result for the same tree, and builds only the images a change moves.
+  Woodpecker has none of the three yet.
+- **The other `ci.yml` jobs** have no pipeline yet: `backend-suites` (Postgres
+  and the API suites), `backend-affected` and `backend-testmon` (the pull
+  request's test selection and the database it reads), and the
+  row-level-security suite. Their targets exist (`be:test:api`,
+  `ci:backend:affected`, `be:test:testmon`, `db:test:rls`).
+- **The scans on a push.** `trivy.yaml` and `sast.yaml` run on pull requests
+  only, as `ci.yml`'s `semgrep` does. `ci.yml`'s `trivy` also scans what a push
+  adds since the last green commit, and keeps the layer analysis in its cache.
+  The Semgrep findings summary is Actions' step summary.
+- **Image push and publish.** `task image:push` and `task image:publish` exist,
+  and Actions' `image-push` and `publish` jobs run them, but no Woodpecker
+  pipeline does: `images.yaml` only builds, and the images the deploy pins come
+  from Actions. Both need a registry login and a push event.
+- **`CI OK`.** `task ci:ok` reads Actions' `needs`; a Woodpecker server gates
+  on each workflow's status instead, and records no tested tree for reuse.
 - **`images.yaml` as committed.** The run above set its own `REGISTRY` and
   buildx builder, and predates the shared build with labels and push mode, so
   the default path (the host daemon's builder, the GHCR `buildcache` read) has

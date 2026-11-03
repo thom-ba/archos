@@ -131,7 +131,7 @@ FULL_PY = ["backend", "backend-coverage", "backend-suites"]
 
 
 def test_a_pull_request_diffs_its_whole_base_and_a_push_its_last_green_commit():
-    base = STEPS["filter"]["with"]["base"]
+    base = STEPS["filter"]["env"]["BASE"]
     pins = STEPS["pins"]["env"]["BASE"]
 
     assert base == pins == "${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}"
@@ -442,9 +442,16 @@ def test_semgrep_finds_its_own_merge_base_from_a_shallow_clone():
     steps = JOBS["semgrep"]["steps"]
     checkout = steps[0]
     assert "fetch-depth" not in checkout.get("with", {})
-    scan = next(step for step in steps if "semgrep ci" in step.get("run", ""))
+    scan = next(step for step in steps if step.get("run") == "sh ci/semgrep_scan.sh")
     # The API lookup semgrep tries before deepening the clone.
     assert scan["env"]["GH_TOKEN"] == "${{ github.token }}"
+    # Off Actions the script names the base itself; on Actions semgrep does.
+    script = (WORKFLOWS.parents[1] / "ci" / "semgrep_scan.sh").read_text(encoding="utf-8")
+    assert 'if [ "${GITHUB_ACTIONS:-}" != true ] && [ -n "${BASE_SHA:-}" ]; then' in script
+    # The binary the script trusts is the image the job runs it in.
+    repository, version = JOBS["semgrep"]["container"]["image"].split(":")
+    assert f"SEMGREP_VERSION={version}\n" in script
+    assert f'"{repository}:$SEMGREP_VERSION"' in script
 
 
 # --- Security -----------------------------------------------------------------------
@@ -501,6 +508,47 @@ def test_staging_deploys_only_a_green_push_run_of_this_repository(run, deploys):
 
     assert bool(evaluate(condition, github=github, inputs={})) is deploys
     assert not evaluate(DEPLOY["jobs"]["deploy-prod"]["if"], github=github, inputs={})
+
+
+# --- Portable commands ----------------------------------------------------------
+
+TASK_LINE = re.compile(r"task (?P<name>[a-z][a-z0-9:-]*)(?: .*)?")
+SCRIPT_LINE = re.compile(r"(?:(?:python3|bash|sh|\.) )?(?P<script>ci/[\w.-]+)(?: .*)?")
+# Actions' plumbing around a command: its output kept for a later step.
+CAPTURE = re.compile(r'\w+="\$\((?P<command>.+)\)"')
+PLUMBING = re.compile(r'echo "\w+=\$\w+" >> "\$GITHUB_(?:ENV|OUTPUT)"')
+# Steps with nothing to run elsewhere. The tree marker asks GitHub's API which
+# tree a pull request run tested, for an artifact only Actions reads back.
+ACTIONS_ONLY = {("ci-ok", "Name the tree this run tested")}
+
+
+def test_every_ci_step_runs_a_task_target_or_a_ci_script():
+    # So a laptop and Woodpecker (docs/contributing/woodpecker.md) run the same
+    # commands; the YAML keeps the matrix, permissions, artifacts and summaries.
+    root = WORKFLOWS.parents[1]
+    tasks: set[str] = set()
+    for taskfile in [root / "Taskfile.yml", *sorted((root / "taskfiles").glob("*.yml"))]:
+        tasks |= set(yaml.safe_load(taskfile.read_text(encoding="utf-8")).get("tasks") or {})
+    # A list, not a dict keyed by name: unnamed steps would overwrite each other.
+    steps = [(job, step) for job, spec in JOBS.items() for step in spec.get("steps", [])]
+    assert ACTIONS_ONLY <= {(job, step.get("name")) for job, step in steps}
+
+    stray = []
+    for job, step in steps:
+        if "run" not in step or (job, step.get("name")) in ACTIONS_ONLY:
+            continue
+        for line in step["run"].strip().splitlines():
+            command = line.strip()
+            if PLUMBING.fullmatch(command):
+                continue
+            if capture := CAPTURE.fullmatch(command):
+                command = capture["command"]
+            task = TASK_LINE.fullmatch(command)
+            script = SCRIPT_LINE.fullmatch(command)
+            if (task and task["name"] in tasks) or (script and (root / script["script"]).is_file()):
+                continue
+            stray.append(f"{job}: {line.strip()}")
+    assert not stray, f"make these a task target or a ci/ script: {stray}"
 
 
 @pytest.mark.parametrize("workflow", sorted(path.name for path in WORKFLOWS.glob("*.yml")))

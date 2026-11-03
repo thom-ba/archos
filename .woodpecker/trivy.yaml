@@ -1,0 +1,40 @@
+# Trivy on the image pins a pull request adds or moves, the `trivy` job of
+# .github/workflows/ci.yml on Woodpecker (pilot, docs/contributing/woodpecker.md):
+# `task ci:trivy` in two steps, since the scan runs in the trivy image its
+# script pins, which has no task. Not yet here: the layer cache across runs,
+# and a push's scan of the pins since the last green commit.
+when:
+  - event: pull_request
+    branch: [develop, "release/**", "claude/**"]
+
+# The agents that take it: docs/contributing/woodpecker.md, "Agents".
+labels:
+  pool: ci
+
+# The full history: the pins are a diff against the merge base.
+clone:
+  - name: clone
+    image: woodpeckerci/plugin-git:2.11.0
+    settings:
+      depth: 0
+      partial: false
+
+steps:
+  # The target branch's tip, which BASE_SHA names (ci/woodpecker_fetch_base.sh).
+  - name: base
+    image: node:22-bookworm
+    commands:
+      - sh ci/woodpecker_fetch_base.sh
+
+  # ci/pinned_images.py needs only the image's python3, as on the Actions runner.
+  - name: pins
+    image: node:22-bookworm
+    commands:
+      - sh ci/woodpecker_setup.sh
+      - . ci/woodpecker_env.sh
+      - task ci:trivy:pins
+
+  - name: scan
+    image: aquasec/trivy:0.61.1
+    commands:
+      - sh ci/trivy_scan.sh .trivy-cache/pins.txt

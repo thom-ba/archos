@@ -135,32 +135,26 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 ci/reuse_green_run.py ci-green
 
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+      # What each tier means and why it is wide: .github/filters.yml. The
+      # script is what `task ci:changes` runs; called directly here, because
+      # every job waits for this one and it needs nothing but python3.
+      - name: Tiers this change touches
         id: filter
         if: steps.reuse.outputs.hit != 'true'
-        with:
-          # What each tier means and why it is wide: .github/filters.yml
-          filters: .github/filters.yml
-          # Empty token -> git diff, so `base` is honoured on pull_request too.
-          token: ''
-          base: ${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}
+        run: python3 ci/paths_filter.py --base "$BASE"
 
-      # A pull request builds an image when it changes what goes into it. A push
-      # builds one when GHCR has no image with these inputs yet, whatever the
-      # diff, so a dropped run, a failed build or a new week costs a rebuild and
-      # never a missing image.
+      # A pull request builds what it changes, a push what GHCR lacks:
+      # ci/plan_images.sh says why.
       - name: Images this run must build
         id: images
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          . ci/git_auth.sh
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            python3 ci/image_inputs.py plan --base "$BASE"
-          else
-            python3 ci/image_inputs.py plan --registry "$GITHUB_REPOSITORY_OWNER"
-          fi
+          REGISTRY_OWNER: ${{ github.repository_owner }}
+        run: bash ci/plan_images.sh
 
       - name: Tests this change reaches
         id: pysel
@@ -246,15 +240,13 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
             pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-
+      - uses: ./.github/actions/setup-task
       # Ruff runs once, in `Backend lint` below, where its findings become
       # annotations on the diff.
       - name: Pre-commit (all hooks, all files)
         env:
           SKIP: ruff-check,ruff-format
-        run: |
-          . .venv/bin/activate
-          pre-commit run --all-files
-      - uses: ./.github/actions/setup-task
+        run: task lint:pre-commit
       # `skills/` is the source, `.claude/` and `.agents/` are generated and
       # gitignored, and apm.lock.yaml hashes both, so a skill edit that was
       # never re-locked appears in no diff at all. `apm audit` exits 0 on
@@ -324,14 +316,11 @@ jobs:
       # that fails. The full history cost ~72 s (docs/audit/blast-radius-2026-10.md §7).
       # The checkout keeps its token so that fallback fetch can run.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # p/github-actions includes the mutable-action-tag rule, so an action
-      # referenced by tag instead of commit SHA is a new finding here.
+      # The rules and the scan: ci/semgrep_scan.sh (`task ci:sast`). The
+      # script itself, as the image has no task.
       - name: Semgrep scan
-        run: >-
-          semgrep ci --json-output=semgrep.json
-          --exclude-rule javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
+        run: sh ci/semgrep_scan.sh
         env:
-          SEMGREP_RULES: p/default p/javascript p/typescript p/python p/secrets p/github-actions
           GH_TOKEN: ${{ github.token }}
       - name: Findings summary
         if: always()
@@ -549,15 +538,8 @@ jobs:
         env:
           SUITE: ${{ matrix.suite }}
           SHARD: ${{ matrix.shard && format('{0}/4', matrix.shard) || '' }}
-          EXTRA_JSON: ${{ needs.changes.outputs.py_extra }}
-        run: |
-          # The named test files that belong to this suite, in its first shard.
-          case "$SUITE" in core) root='^(tests|evals)/' ;; api) root='^apps/agent-host/tests/' ;; sources) root='^packages/(knowledge-layer|ris-adapter|tavily-web-search)/' ;; esac
-          extra=""
-          if [ -z "$SHARD" ] || [ "${SHARD%%/*}" = 1 ]; then
-            extra="$(jq -r --arg root "$root" '[.[] | select(test($root))] | join(" ")' <<<"$EXTRA_JSON")"
-          fi
-          task be:test:affected SUITE="$SUITE" SHARD="$SHARD" EXTRA="$extra"
+          FILES_JSON: ${{ needs.changes.outputs.py_extra }}
+        run: task ci:backend:affected SUITE="$SUITE" SHARD="$SHARD"
       # Saved red or green: a failed test is recorded as failed and re-runs.
       - name: Keep this pull request's database for its next push
         if: always() && steps.affected.outcome != 'skipped' && !matrix.shard
@@ -698,7 +680,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}/8
           FILES_JSON: ${{ needs.changes.outputs.ui_files }}
-        run: task workspace:test:related SHARD="$SHARD" FILES="$(jq -r 'join(" ")' <<<"$FILES_JSON")"
+        run: task ci:workspace:related SHARD="$SHARD"
       # Coverage is collected per shard and merged below: a shard only loads
       # its own slice of the app. Uploaded even when the shard failed, because
       # the merged report is where a reviewer looks.
@@ -760,10 +742,9 @@ jobs:
           node-version: "22"
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
-      # The website's accessibility gate drives Chromium; this installs its system libraries
-      # (the version is apps/website's playwright devDependency).
-      - run: npx --yes playwright@1.63.0 install-deps chromium
-      - run: task website:verify
+      # The accessibility gate drives Chromium: ci:site installs its system
+      # libraries with apps/website's own Playwright, then runs website:verify.
+      - run: task ci:site
 
   infra:
     name: Infra (Pulumi typecheck + manifest tests)
@@ -792,18 +773,13 @@ jobs:
       # The collector build the image digest pins (`collectorImage` in
       # deploy/pulumi/src/config/observability.ts): `collector-validate.spec.ts` runs every
       # rendered config through its `validate`, which is what refuses an
-      # unknown component or key before the collector would at start. Bump the
-      # version and checksum together with that digest.
+      # unknown component or key before the collector would at start. The
+      # version and checksums live in the script. `task ci:infra` is this job
+      # in one target.
       - name: Install otelcol-contrib (config validation)
-        env:
-          OTELCOL_VERSION: "0.163.2"
-          OTELCOL_SHA256: "cc19dd6a1b85ca694ef16655688e597f693d0e24d2baecdd50e2db597819eeff"
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/otelcol.tar.gz" \
-            "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTELCOL_VERSION}/otelcol-contrib_${OTELCOL_VERSION}_linux_amd64.tar.gz"
-          echo "${OTELCOL_SHA256}  $RUNNER_TEMP/otelcol.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/otelcol.tar.gz" -C "$RUNNER_TEMP" otelcol-contrib
-          echo "OTELCOL_BIN=$RUNNER_TEMP/otelcol-contrib" >> "$GITHUB_ENV"
+          bin="$(bash ci/install_otelcol.sh "$RUNNER_TEMP/otelcol")"
+          echo "OTELCOL_BIN=$bin" >> "$GITHUB_ENV"
       - run: task infra:test
 
   # packages/ sits outside both workspaces (own bun.lock, own uv.lock),
@@ -873,30 +849,18 @@ jobs:
       - name: Ingest workflow on the engine (Python)
         if: ${{ !cancelled() && steps.engine.outcome == 'success' }}
         timeout-minutes: 8
-        run: >-
-          .venv/bin/python -X faulthandler -m pytest -q -rA -o faulthandler_timeout=150
-          packages/agent/tests/knowledge/test_ingest_workflow_engine.py
-          --junitxml="$RUNNER_TEMP/hatchet-ingest.xml"
+        run: task ci:hatchet:ingest REPORTS="$RUNNER_TEMP"
       - name: Research run on the engine (Python, worker subprocesses)
         if: ${{ !cancelled() && steps.engine.outcome == 'success' }}
         timeout-minutes: 8
-        run: >-
-          .venv/bin/python -X faulthandler -m pytest -q -rA -o faulthandler_timeout=150
-          apps/agent-host/tests/test_research_workflow_engine.py
-          --junitxml="$RUNNER_TEMP/hatchet-research.xml"
+        run: task ci:hatchet:research REPORTS="$RUNNER_TEMP"
       # Over the migrated database as the restricted role, which the RLS script
       # builds (`--only`). One cluster per file: the BFF's job and scheduler
       # suites take from whole tables, so they never share one. The glob picks
       # up a new `bff/<area>/orchestrator.integration.spec.ts` without an edit here.
       - name: BFF jobs on the engine (TypeScript, real Postgres)
         if: ${{ !cancelled() && steps.engine.outcome == 'success' }}
-        working-directory: apps/workspace
-        run: |
-          for spec in bff/*/orchestrator.integration.spec.ts; do
-            area="${spec#bff/}"; area="${area%%/*}"
-            bash ../../scripts/rls-test-db.sh --only "$spec" \
-              --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/hatchet-bff-$area.xml"
-          done
+        run: task ci:hatchet:bff REPORTS="$RUNNER_TEMP"
       # A skipped suite is green, and every one of these skips without an engine.
       - name: Every suite ran, none skipped
         if: ${{ !cancelled() && steps.engine.outcome == 'success' }}
@@ -915,27 +879,29 @@ jobs:
     if: needs.changes.outputs.pins != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      TRIVY_VERSION: "0.61.1"
-      PINS: ${{ needs.changes.outputs.pins }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: python3 -c 'import json, os; print("\n".join(json.loads(os.environ["PINS"])))' | tee pins.txt
+      # The pins the Plan job found, so this job needs no history. `task
+      # ci:trivy` finds them itself and then scans.
+      - env:
+          PINS: ${{ needs.changes.outputs.pins }}
+        run: python3 ci/pinned_images.py write pins.txt
+      # Keyed on the pin set and the scan script, which pins trivy's version.
       - name: Restore the layer analysis
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .trivy-cache/fanal
-          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
-      - run: bash ci/trivy_scan.sh pins.txt
+          key: trivy-layers-${{ hashFiles('ci/trivy_scan.sh') }}-${{ hashFiles('pins.txt') }}
+      - run: sh ci/trivy_scan.sh pins.txt
       - name: Save the layer analysis
         if: always() && hashFiles('.trivy-cache/fanal/**') != ''
         continue-on-error: true
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .trivy-cache/fanal
-          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
+          key: trivy-layers-${{ hashFiles('ci/trivy_scan.sh') }}-${{ hashFiles('pins.txt') }}
 
   # A pull request proves each image it changes still builds, and pushes
   # nothing: the token is read-only, so no build here can reach the registry
@@ -1014,6 +980,11 @@ jobs:
       contents: read
       packages: write
     steps:
+      # The script and nothing else: the tags come from the plan, not the tree.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: ci
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
@@ -1024,23 +995,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      # A registry-side manifest copy: seconds, and no layer moves.
+      # What `task image:publish` runs; called directly, as the job has no task.
       - name: Tag sha-${{ github.sha }}
         env:
           IMAGES: ${{ needs.changes.outputs.images }}
+          GIT_SHA: ${{ github.sha }}
           LATEST: ${{ github.ref == 'refs/heads/develop' }}
-        run: |
-          python3 - <<'PY'
-          import json, os, subprocess
-          registry, sha = os.environ["REGISTRY"], os.environ["GITHUB_SHA"]
-          for image in json.loads(os.environ["IMAGES"]):
-              repo = f"{registry}/{image['repository']}"
-              tags = ["-t", f"{repo}:sha-{sha}"]
-              if os.environ["LATEST"] == "true":
-                  tags += ["-t", f"{repo}:latest"]
-              print(f"{repo}:inputs-{image['hash']} -> sha-{sha}", flush=True)
-              subprocess.run(["docker", "buildx", "imagetools", "create", *tags, f"{repo}:inputs-{image['hash']}"], check=True)
-          PY
+        run: python3 ci/publish_images.py
 
   ci-ok:
     name: CI OK
@@ -1058,18 +1019,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: ci
+      # What `task ci:ok` runs; called directly, as the job has no task.
       - name: Require needed jobs to have passed (skipped is fine)
         env:
           NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json, os, sys
-          needs = json.loads(os.environ["NEEDS"])
-          failed = {k: v["result"] for k, v in needs.items() if v["result"] not in ("success", "skipped")}
-          if failed:
-              sys.exit(f"Failing jobs: {failed}")
-          print("All required jobs passed or were skipped.")
-          PY
+        run: python3 ci/ci_ok.py
       # A green pull_request run leaves a marker named for the tree it tested
       # (GITHUB_SHA is the merge commit every job checked out), so the push
       # that lands this exact tree on a green parent can skip its checks. After

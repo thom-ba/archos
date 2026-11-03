@@ -1,4 +1,4 @@
-// @disk-inputs: ../../.github/actions/build-image/action.yml, deploy/Dockerfile
+// @disk-inputs: ../../.github/actions/build-image/action.yml, ../../ci/build_image.py, deploy/Dockerfile
 /**
  * @vitest-environment node
  */
@@ -102,6 +102,7 @@ describe('the image build wiring', () => {
     path.join(UI_ROOT, '..', '..', '.github', 'actions', 'build-image', 'action.yml'),
     'utf8'
   )
+  const buildScript = readFileSync(path.join(UI_ROOT, '..', '..', 'ci', 'build_image.py'), 'utf8')
   const builder = dockerfile.slice(
     dockerfile.indexOf('FROM base AS builder'),
     dockerfile.indexOf('FROM base AS runner')
@@ -120,6 +121,7 @@ describe('the image build wiring', () => {
   it('never takes the key as a build argument', () => {
     expect(dockerfile).not.toMatch(/^\s*(ARG|ENV)\s+\w*(API_KEY|KEY)\b/m)
     expect(action).not.toMatch(/POSTHOG_API_KEY=|POSTHOG_CLI_API_KEY=/)
+    expect(buildScript).not.toMatch(/args\[["']POSTHOG_(CLI_)?API_KEY["']\]/)
   })
 
   it('declares the release version and the project id before the build reads them', () => {
@@ -140,9 +142,12 @@ describe('the image build wiring', () => {
     expect(buildStep).toMatch(/grep -rlq 'chunkId=' .*exit 1/s)
   })
 
-  it('passes the key as a secret from the build-image action, for the frontend image only', () => {
-    expect(action).toMatch(
-      /secrets: \$\{\{ inputs\.name == 'frontend' && inputs\.posthog-api-key != ''/
-    )
+  it('passes the key as a secret through ci/build_image.py, for the frontend image only', () => {
+    // The action hands its input to the build's environment; the script names
+    // that variable as the BuildKit secret, so the value is on no command line.
+    expect(action).toMatch(/^\s+POSTHOG_API_KEY: \$\{\{ inputs\.posthog-api-key \}\}$/m)
+    expect(buildScript).toContain('POSTHOG_SECRET = "posthog_cli_api_key"')
+    expect(buildScript).toMatch(/= image\.name == "frontend" and env\.get\("POSTHOG_API_KEY"\)/)
+    expect(buildScript).toContain('"--secret", f"id={POSTHOG_SECRET},env=POSTHOG_API_KEY"')
   })
 })

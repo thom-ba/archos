@@ -173,6 +173,20 @@ tasks:
       - task: workspace:types
       - task: workspace:blast-radius
 
+  # The Plan job's path filter (ci.yml calls the script itself, before any
+  # setup). BASE_SHA empty runs every tier; locally try BASE_SHA=origin/develop.
+  ci:changes:
+    desc: 'CI: which tiers of .github/filters.yml the change touches, BASE_SHA..HEAD (env BASE_SHA)'
+    cmds:
+      - python3 ci/paths_filter.py --base "${BASE_SHA:-}"
+
+  # The CI OK job's gate; ci.yml calls the script itself, from a checkout of
+  # ci/ only.
+  ci:ok:
+    desc: 'CI: fail unless every needed job passed or was skipped (env NEEDS, the JSON of Actions'' needs)'
+    cmds:
+      - python3 ci/ci_ok.py
+
   # The Repo checks job's own logic, so any CI runs it as one `task` call
   # (GitHub Actions in ci.yml, Woodpecker in .woodpecker/). The scripts say
   # which env each reads; BASE_SHA empty means a push.
@@ -191,6 +205,26 @@ tasks:
     cmds:
       - bash ci/secret_scan.sh
 
+  ci:sast:
+    desc: 'CI, pull requests: the Semgrep findings the change introduces, BASE_SHA..HEAD (env BASE_SHA)'
+    cmds:
+      - sh ci/semgrep_scan.sh
+
+  # The Image vulns job: the digest pins a change adds or moves, then trivy on
+  # them. Needs docker, or trivy at the script's version on PATH (the
+  # aquasec/trivy image a Woodpecker step runs in).
+  ci:trivy:
+    desc: 'CI: trivy on the image pins the change adds or moves, BASE_SHA..HEAD; every pin when BASE_SHA is empty (env BASE_SHA)'
+    cmds:
+      - task: ci:trivy:pins
+      - sh ci/trivy_scan.sh .trivy-cache/pins.txt
+
+  ci:trivy:pins:
+    desc: 'CI: the image pins the change adds or moves, into .trivy-cache/pins.txt (env BASE_SHA)'
+    cmds:
+      - mkdir -p .trivy-cache
+      - python3 ci/pinned_images.py new "${BASE_SHA:-}" .trivy-cache/pins.txt
+
   # CI's image build, on Actions (.github/actions/build-image) and Woodpecker.
   # Needs docker with buildx; the env it reads is in ci/build_image.py.
   image:build:
@@ -207,13 +241,26 @@ tasks:
     cmds:
       - python3 ci/build_image.py {{.NAME}} --push {{.CLI_ARGS}}
 
+  # ci.yml's publish job calls the script itself, from a checkout of ci/ only.
+  image:publish:
+    desc: "Tag the images' content tags with sha-<commit>, and latest when LATEST=true (a registry login first; env IMAGES, GIT_SHA)"
+    cmds:
+      - python3 ci/publish_images.py {{.CLI_ARGS}}
+
   lint:repo:
     desc: pre-commit across the whole repo, plus the agent-skill lockfile — the same scope CI lints
     cmds:
-      # From the venv, not PATH: `uv sync --group dev` installs pre-commit into
-      # .venv and nothing puts it on PATH.
-      - '{{.VENV_BIN}}/pre-commit{{.EXE}} run --all-files'
+      - task: lint:pre-commit
       # `skills/` is source and `.claude/`/`.agents/` are generated and
       # gitignored, so an edit to a skill that was never re-locked shows up
       # here and nowhere else. See the task for what each half catches.
       - task: agents:audit
+
+  # The Repo checks job's pre-commit step; it skips ruff (env SKIP), which
+  # its own step runs for the annotations.
+  lint:pre-commit:
+    desc: 'pre-commit across the whole repo (SKIP=hook,… leaves hooks out)'
+    cmds:
+      # From the venv, not PATH: `uv sync --group dev` installs pre-commit into
+      # .venv and nothing puts it on PATH.
+      - '{{.VENV_BIN}}/pre-commit{{.EXE}} run --all-files'

@@ -49,3 +49,25 @@ def test_the_program_pins_the_images_adr_0029_and_0044_name(mod):
         "otel/opentelemetry-collector-contrib",
         "ghcr.io/cloudnative-pg/pgbouncer",
     } <= names
+
+
+def test_new_writes_the_pins_file_trivy_scans_and_an_empty_base_means_every_pin(mod, tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    pins = tmp_path / "pins.txt"
+
+    assert mod.main(["new", "", str(pins)]) == 0
+
+    assert pins.read_text(encoding="utf-8").splitlines() == sorted(mod.pins_at("HEAD"))
+
+
+def test_write_turns_the_plan_jobs_json_into_the_pins_file(mod, tmp_path, monkeypatch):
+    pins = tmp_path / "pins.txt"
+    pin = f"redis@sha256:{DIGEST}"
+
+    monkeypatch.setenv("PINS", f'["{pin}"]')
+    assert mod.main(["write", str(pins)]) == 0
+    assert pins.read_text(encoding="utf-8") == f"{pin}\n"
+
+    monkeypatch.setenv("PINS", "[]")
+    assert mod.main(["write", str(pins)]) == 0
+    assert pins.read_text(encoding="utf-8") == ""

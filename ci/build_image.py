@@ -114,6 +114,9 @@ def main(argv: list[str]) -> int:
     print(shlex.join(cmd), flush=True)
     if args.dry_run:
         return 0
+    # An argv list without a shell: the env values (registry, labels, the build
+    # args) reach buildx as single arguments, so nothing in them is a command.
+    # nosemgrep: dangerous-subprocess-use-tainted-env-args
     return subprocess.call(cmd, cwd=image_inputs.ROOT)
 
 

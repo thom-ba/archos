@@ -14,8 +14,12 @@ for someone to add it to a list.
 
 Usage:
   pinned_images.py list [REV]          every pin at REV (default: the working tree)
-  pinned_images.py new BASE            pins at HEAD that BASE's merge base with HEAD lacks
-`new` also writes `pins=<json list>` to $GITHUB_OUTPUT.
+  pinned_images.py new BASE [FILE]     pins at HEAD that BASE's merge base with HEAD lacks;
+                                       every pin at HEAD when BASE is empty (a push
+                                       without a green base, as the path filter reads it)
+  pinned_images.py write FILE          the pins in $PINS, the Plan job's JSON list
+`new` also writes `pins=<json list>` to $GITHUB_OUTPUT. FILE gets the pins one
+per line, empty when there are none: what ci/trivy_scan.sh reads.
 """
 
 from __future__ import annotations
@@ -48,16 +52,27 @@ def pins_at(rev: str | None) -> set[str]:
     return set().union(*(pins_in(_git("show", f"{rev}:{n}")) for n in names if not n.endswith(".spec.ts")))
 
 
+def write(path: str, pins: list[str]) -> None:
+    Path(path).write_text("".join(f"{pin}\n" for pin in pins), encoding="utf-8")
+
+
 def main(argv: list[str]) -> int:
     if argv[:1] == ["list"] and len(argv) <= 2:
         print("\n".join(sorted(pins_at(argv[1] if len(argv) == 2 else None))))
         return 0
-    if argv[:1] != ["new"] or len(argv) != 2:
+    if argv[:1] == ["write"] and len(argv) == 2:
+        pins = json.loads(os.environ["PINS"])
+        print("\n".join(pins) if pins else "no pin added or moved")
+        write(argv[1], pins)
+        return 0
+    if argv[:1] != ["new"] or len(argv) not in (2, 3):
         print(__doc__, file=sys.stderr)
         return 2
-    merge_base = _git("merge-base", argv[1], "HEAD").strip()
-    new = sorted(pins_at("HEAD") - pins_at(merge_base))
+    base = argv[1] and _git("merge-base", argv[1], "HEAD").strip()
+    new = sorted(pins_at("HEAD") - (pins_at(base) if base else set()))
     print("\n".join(new) if new else "no pin added or moved")
+    if len(argv) == 3:
+        write(argv[2], new)
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:

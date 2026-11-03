@@ -84,7 +84,7 @@ export function loadObservability(
     // go1.26.8 standard library and golang.org/x/net v0.58.0 carried four HIGH
     // advisories (CVE-2026-78667, -78669, -97031, -111943); the 0.163.2 amd64
     // binary, read with `go version -m`, is go1.26.10 with x/net v0.61.0. The
-    // otelcol-contrib build in ci.yml (`OTELCOL_VERSION`) moves with this pin.
+    // otelcol-contrib build ci/install_otelcol.sh installs moves with this pin.
     collectorImage:
       cfg.get("collectorImage") ??
       "otel/opentelemetry-collector-contrib@sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849",

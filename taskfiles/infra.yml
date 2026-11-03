@@ -33,8 +33,30 @@ tasks:
     # needs, a liveness probe pointed at an endpoint that answers 423. All
     # string-valued, all invisible to tsc. These run the program under
     # `pulumi.runtime.setMocks` and assert the resource inputs directly.
+    # OTELCOL_BIN (env or var): the otelcol-contrib binary collector-validate.spec.ts
+    # runs every rendered collector config through; without it that spec is
+    # skipped. ci/install_otelcol.sh installs it, `task ci:infra` passes it.
+    env:
+      OTELCOL_BIN: '{{.OTELCOL_BIN}}'
     cmds:
       - bun run --cwd deploy/pulumi test
+
+  # The Infra job of .github/workflows/ci.yml in one target, for a CI without
+  # its steps and for a local run. Actions runs the same commands as steps.
+  # What can run on an untrusted PR: the types (every CRD `spec`, and the
+  # policy pack) and the manifests under `pulumi.runtime.setMocks`. `pulumi
+  # preview`, CRD schema validation and CrossGuard need stack credentials and
+  # run in deploy.yml.
+  ci:infra:
+    desc: 'CI: the Infra job: install, typecheck, and the manifest tests with otelcol-contrib validate'
+    vars:
+      OTELCOL_BIN:
+        sh: bash ci/install_otelcol.sh tmp/otelcol
+    cmds:
+      - task: infra:install
+      - task: infra:types
+      - task: infra:test
+        vars: {OTELCOL_BIN: '{{.OTELCOL_BIN}}'}
 
   infra:preview:
     desc: 'Pulumi preview (needs stack credentials)'

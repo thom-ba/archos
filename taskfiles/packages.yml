@@ -56,3 +56,12 @@ tasks:
     cmds:
       - task: pkg:test:ts
       - task: pkg:test:py
+
+  # The Packages job of .github/workflows/ci.yml in one target, for a CI
+  # without its steps (Actions runs the same tasks as steps, so its summary
+  # names the package).
+  ci:packages:
+    desc: 'CI: the Packages job: both toolchains, then both suites'
+    cmds:
+      - task: pkg:install
+      - task: pkg:test

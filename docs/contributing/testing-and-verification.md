@@ -139,7 +139,9 @@ reaches (`be:test:affected`, from the database `be:test:testmon` records on
 every push to `develop`); the full suite runs on the push. To run the same
 selection locally, record once with `task be:test:testmon` and then
 `task be:test:affected SUITE=core`. The UI equivalent is
-`task workspace:test:related SHARD=1/1 FILES="src/path/changed.ts"`. Locally `task workspace:verify` runs lint, types, tests and
+`task workspace:test:related SHARD=1/1 FILES="src/path/changed.ts"`. CI runs
+both through `ci:backend:affected` and `ci:workspace:related`, which add the
+files `ci/pr_selection.py` named (env `FILES_JSON`). Locally `task workspace:verify` runs lint, types, tests and
 build in order instead.
 
 What decides which jobs run (a pull request against its base, a push against the
@@ -385,7 +387,7 @@ Three things about the trivy job that are not obvious:
   theirs to rotate) and walked the Langfuse web image's source maps past trivy's
   5-minute deadline on every promotion PR.
 - What trivy learns by *walking* the images is cached across runs
-  (`actions/cache`, keyed on the pin set and the trivy version). The
+  (`actions/cache`, keyed on the pin set and `ci/trivy_scan.sh`, which pins trivy). The
   vulnerability database is not, and the split is the point: a digest cannot
   change, but the advisories about it do, so only the immutable half is reused
   and a CVE disclosed this morning is still caught on the next run. That half

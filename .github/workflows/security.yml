@@ -111,8 +111,6 @@ jobs:
     name: Image vulns (trivy, every pin)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      TRIVY_VERSION: "0.61.1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -122,12 +120,12 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .trivy-cache/fanal
-          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
-      - run: bash ci/trivy_scan.sh pins.txt
+          key: trivy-layers-${{ hashFiles('ci/trivy_scan.sh') }}-${{ hashFiles('pins.txt') }}
+      - run: sh ci/trivy_scan.sh pins.txt
       - name: Save the layer analysis
         if: always() && hashFiles('.trivy-cache/fanal/**') != ''
         continue-on-error: true
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .trivy-cache/fanal
-          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
+          key: trivy-layers-${{ hashFiles('ci/trivy_scan.sh') }}-${{ hashFiles('pins.txt') }}
