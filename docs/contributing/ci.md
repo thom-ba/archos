@@ -528,3 +528,4 @@ exercise an external call (a registry, an API) against the real service before
 saying the fix works. Some paths only run after the merge, on a push; say
 plainly which ones your change could not prove.
 <!-- gate test a -->
+<!-- gate test b1 -->
