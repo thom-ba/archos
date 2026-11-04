@@ -17,7 +17,13 @@ while :; do
     while kill -0 "$pid" 2>/dev/null; do
       if [ -e /shared/done ]; then
         kill -TERM "$pid" 2>/dev/null
-        sleep 5
+        for _ in $(seq 1 20); do
+          kill -0 "$pid" 2>/dev/null || break
+          sleep 1
+        done
+        # The pod must end, or it holds its quota until the job's deadline.
+        pkill -KILL -f Runner.Listener 2>/dev/null
+        kill -KILL "$pid" 2>/dev/null
         break
       fi
       sleep 3

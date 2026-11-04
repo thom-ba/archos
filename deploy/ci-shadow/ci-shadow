@@ -2,7 +2,7 @@
 # Install, run and remove ci-shadow: CI on runner pods in the cluster, for the test
 # copy only. Nothing here touches the real repository's CI. See README.md.
 #
-#   ci-shadow install      needs KUBECONFIG and CI_SHADOW_GITHUB_TOKEN
+#   ci-shadow install      needs KUBECONFIG; CI_SHADOW_GITHUB_TOKEN the first time
 #   ci-shadow run [light|full]
 #   ci-shadow status
 #   ci-shadow off          removes everything from the cluster
@@ -14,10 +14,14 @@ image="${CI_SHADOW_IMAGE:-ghcr.io/thom-ba/ci-shadow-runner@sha256:10c6213782460b
 
 case "${1:-}" in
   install)
-    : "${CI_SHADOW_GITHUB_TOKEN:?a GitHub token limited to the test copy}"
     kubectl apply -f "$here/manifests"
-    kubectl -n "$ns" create secret generic ci-shadow-github \
-      --from-file=token=<(printf '%s' "$CI_SHADOW_GITHUB_TOKEN") --dry-run=client -o yaml | kubectl apply -f -
+    if [ -n "${CI_SHADOW_GITHUB_TOKEN:-}" ]; then
+      kubectl -n "$ns" create secret generic ci-shadow-github \
+        --from-file=token=<(printf '%s' "$CI_SHADOW_GITHUB_TOKEN") --dry-run=client -o yaml | kubectl apply -f -
+    else
+      kubectl -n "$ns" get secret ci-shadow-github >/dev/null \
+        || { echo "first install: set CI_SHADOW_GITHUB_TOKEN, a token limited to the test copy" >&2; exit 1; }
+    fi
     kubectl -n "$ns" create configmap ci-shadow-scripts \
       --from-file="$here/slot-feeder.sh" --from-file="$here/slot-runner.sh" --dry-run=client -o yaml | kubectl apply -f -
     for depth in light full; do

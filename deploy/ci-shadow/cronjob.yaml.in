@@ -34,6 +34,14 @@ spec:
           automountServiceAccountToken: false
           enableServiceLinks: false
           terminationGracePeriodSeconds: 20
+          # One slot per node where it can be: a run's disk and CPU then don't pile up on one.
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app: ci-shadow
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
