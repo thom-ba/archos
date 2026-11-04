@@ -8,8 +8,8 @@ re-tagged, which pins trivy scans. A reviewer asking "why did the backend not
 run?" reads it here instead of in a step log.
 
 Reads the Plan job's step outputs from the environment (ci.yml passes them):
-EVENT, BASE, BASE_REASON, REUSED, TIERS (JSON object), BUILD, IMAGES, PINS
-(JSON lists).
+EVENT, DEPTH, DEPTH_REASON, BASE, BASE_REASON, REUSED, TIERS (JSON object), BUILD,
+IMAGES, PINS (JSON lists).
 """
 
 from __future__ import annotations
@@ -34,6 +34,12 @@ def render(env: dict[str, str]) -> str:
     pins = json.loads(env.get("PINS") or "[]")
 
     lines = ["## Plan", ""]
+    if env.get("DEPTH") == "light":
+        lines += [
+            f"**Light run** ({env.get('DEPTH_REASON')}). Test shards, full suites and image builds skip. "
+            "Turn on auto-merge (`gh pr merge --auto --squash`) to run them.",
+            "",
+        ]
     if event == "pull_request":
         base = _short(env.get("BASE", ""))
         lines.append(f"Diffed against the pull request's base, {base}: the whole PR, every push.")
