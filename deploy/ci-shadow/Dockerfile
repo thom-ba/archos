@@ -29,6 +29,14 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends "postgresql-${POSTGRES_MAJOR}" \
  && rm -rf /var/lib/apt/lists/*
 
+# gh, which ci.yml's Plan and publish steps call and the base image lacks.
+RUN install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli.gpg \
+ && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+ && apt-get update && apt-get install -y --no-install-recommends gh \
+ && rm -rf /var/lib/apt/lists/*
+
 # Node on the PATH before any setup step: setup-task and setup-bun install with
 # `npm i -g`, relying on every GitHub runner image shipping Node.
 ARG NODE_VERSION=22.23.3
