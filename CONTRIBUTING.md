@@ -133,10 +133,12 @@ UI. `agent-reachability.spec.ts` fails the PR otherwise. Checklist:
 
 ## CI and the merge gate
 
-- The single required status check is **CI OK**
-  ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): it passes only when
-  every needed job succeeded or was skipped because the change could not affect
-  it. How CI decides what to run, and why:
+- Every push to a pull request gets the light checks. To merge, turn on auto-merge
+  (`gh pr merge --auto --squash`): that runs the full suite, and the status
+  **Full suite** holds the merge until it passes.
+- **CI OK** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) passes only
+  when every needed job succeeded or was skipped because the change could not
+  affect it. How CI decides what to run, and why:
   [docs/contributing/ci.md](docs/contributing/ci.md).
 - Security checks a change can fail are part of CI: gitleaks on every run,
   Semgrep on the findings a PR introduces, trivy on the image pins it adds.

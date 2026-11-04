@@ -81,10 +81,13 @@ def plan(
     py_mode: str | None = None,
     ui_mode: str | None = None,
     reference: str | None = None,
+    depth: str | None = None,
 ) -> dict:
     """The plan job's outputs, given what each of its scripts would answer."""
     github = {"event_name": event}
     steps: dict = {}
+    if depth:
+        steps["depth"] = {"outputs": {"depth": depth}}
     if evaluate(STEPS["green"]["if"], github=github):
         steps["green"] = {"outputs": {"sha": "f" * 40, "parent-is-green": "true" if parent_green else "false"}}
     if evaluate(STEPS["reuse"]["if"], github=github, steps=steps) and hit is not None:
@@ -111,6 +114,49 @@ def runs(job: str, *, event: str, outputs: dict) -> bool:
 CHECKS = [job for job in JOBS if job not in ("changes", "ci-ok", "publish", "image", "image-push")]
 # The full Python suite, and the selection a pull request runs instead of it.
 FULL_PY = ["backend", "backend-coverage", "backend-suites"]
+
+
+# --- How much a run owes ------------------------------------------------------
+
+# What only a full run does. Everything else also runs on a light one.
+FULL_ONLY = [*FULL_PY, "workspace-test", "hatchet", "image"]
+
+
+def test_a_light_pull_request_run_skips_what_only_the_full_suite_runs():
+    light = plan(event="pull_request", py_mode="full", ui_mode="full", depth="light")
+    full = plan(event="pull_request", py_mode="full", ui_mode="full", depth="full")
+
+    assert light["depth"] == "light"
+    assert not [job for job in FULL_ONLY if runs(job, event="pull_request", outputs=light)]
+    assert all(runs(job, event="pull_request", outputs=full) for job in FULL_ONLY)
+
+
+def test_a_light_run_keeps_the_cheap_checks():
+    light = plan(event="pull_request", py_mode="select", ui_mode="select", depth="light")
+
+    for job in ["repo", "repo-tests", "release-notes", "semgrep", "backend-affected", "workspace", "site", "infra"]:
+        assert runs(job, event="pull_request", outputs=light), job
+
+
+def test_a_failed_depth_step_reads_as_full():
+    assert plan(event="pull_request")["depth"] == "full"
+
+
+def test_turning_on_auto_merge_starts_a_run_on_the_head_it_merges():
+    assert "auto_merge_enabled" in CI["on"]["pull_request"]["types"]
+    # GitHub's defaults, which naming any type replaces.
+    assert {"opened", "synchronize", "reopened"} <= set(CI["on"]["pull_request"]["types"])
+    assert "auto_merge_enabled" in PLAN["steps"][0]["with"]["ref"]
+
+
+def test_only_a_full_run_reports_the_result_or_leaves_the_green_marker():
+    steps = {step.get("name"): step for step in JOBS["ci-ok"]["steps"]}
+
+    assert "needs.changes.outputs.depth == 'full'" in steps["Report the full suite's result"]["if"]
+    assert "continue-on-error" not in steps["Report the full suite's result"]
+    assert "needs.changes.outputs.depth == 'full'" in steps["Name the tree this run tested"]["if"]
+    assert JOBS["ci-ok"]["permissions"]["statuses"] == "write"
+    assert PLAN["permissions"]["statuses"] == "write"
 
 
 # --- What a run diffs against ------------------------------------------------
@@ -301,7 +347,7 @@ def test_the_reuse_lookup_cannot_fail_the_run():
 
     assert reuse["continue-on-error"] is True
     assert reuse["run"] == "python3 ci/reuse_green_run.py ci-green"
-    assert PLAN["permissions"] == {"contents": "read", "actions": "read", "packages": "read"}
+    assert PLAN["permissions"] == {"contents": "read", "actions": "read", "packages": "read", "statuses": "write"}
 
 
 def test_the_marker_is_uploaded_only_by_a_passing_pull_request_gate():
@@ -381,7 +427,7 @@ def test_the_engine_suites_run_on_the_engine_production_runs():
 
 
 def test_the_engine_job_runs_on_its_own_tier():
-    assert JOBS["hatchet"]["if"] == "needs.changes.outputs.hatchet == 'true'"
+    assert JOBS["hatchet"]["if"] == "needs.changes.outputs.depth == 'full' && needs.changes.outputs.hatchet == 'true'"
     assert not runs("hatchet", event="pull_request", outputs=plan(event="pull_request") | {"hatchet": "false"})
 
 
