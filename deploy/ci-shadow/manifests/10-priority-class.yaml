@@ -1,0 +1,10 @@
+# Below every staging pod (priority 0): a staging pod that needs room evicts a
+# runner, and a runner never evicts anything.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ci-shadow-low
+value: -100
+globalDefault: false
+preemptionPolicy: Never
+description: ci-shadow test runners. Staging pods evict them when they need the room.

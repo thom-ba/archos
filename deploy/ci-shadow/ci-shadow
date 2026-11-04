@@ -15,7 +15,7 @@ image="${CI_SHADOW_IMAGE:-ghcr.io/thom-ba/ci-shadow-runner@sha256:22a6bc01f28273
 case "${1:-}" in
   install)
     : "${CI_SHADOW_GITHUB_TOKEN:?a GitHub token limited to the test copy}"
-    kubectl apply -f "$here/manifests.yaml"
+    kubectl apply -f "$here/manifests"
     kubectl -n "$ns" create secret generic ci-shadow-github \
       --from-file=token=<(printf '%s' "$CI_SHADOW_GITHUB_TOKEN") --dry-run=client -o yaml | kubectl apply -f -
     kubectl -n "$ns" create configmap ci-shadow-scripts \

@@ -1,0 +1,8 @@
+# The parts of ci-shadow that exist while nothing is running: no pods, no CPU,
+# no memory. See README.md. Applied by `ci-shadow install`, removed by `ci-shadow off`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ci-shadow
+  labels:
+    pod-security.kubernetes.io/enforce: baseline

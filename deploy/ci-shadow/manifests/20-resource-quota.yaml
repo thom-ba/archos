@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ci-shadow
+  namespace: ci-shadow
+spec:
+  hard:
+    pods: "3"
+    requests.cpu: 1500m
+    requests.memory: 19Gi
+    limits.cpu: "11"
+    limits.memory: 25Gi
+    requests.ephemeral-storage: 15Gi
+    limits.ephemeral-storage: 120Gi
