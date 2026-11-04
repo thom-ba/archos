@@ -7,8 +7,8 @@ spec:
   hard:
     pods: "3"
     requests.cpu: 1500m
-    requests.memory: 19Gi
-    limits.cpu: "11"
-    limits.memory: 25Gi
+    requests.memory: 13Gi
+    limits.cpu: "12"
+    limits.memory: 22Gi
     requests.ephemeral-storage: 15Gi
     limits.ephemeral-storage: 120Gi

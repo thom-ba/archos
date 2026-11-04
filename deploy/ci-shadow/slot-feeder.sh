@@ -27,11 +27,13 @@ finish() {
 
 head_commit() { api GET "/repos/$REPO/git/ref/heads/$BRANCH" | jq -r .object.sha; }
 
-deploy_running() {
+deploy_running() { # also true when it cannot tell: not knowing must not start a run
   local status count
   for status in in_progress queued; do
-    count="$(api GET "/repos/$DEPLOY_REPO/actions/workflows/deploy.yml/runs?status=$status&per_page=1" | jq -r .total_count)"
-    [ "${count:-0}" != "0" ] && return 0
+    count="$(curl -fsS -H 'Accept: application/vnd.github+json' \
+      "https://api.github.com/repos/$DEPLOY_REPO/actions/workflows/deploy.yml/runs?status=$status&per_page=1" \
+      | jq -r .total_count)" || return 0
+    [ "$count" = 0 ] || return 0
   done
   return 1
 }
@@ -46,7 +48,7 @@ start_run() {
   for i in $(seq 1 60); do
     deploy_running || break
     [ "$i" = 60 ] && { log "RESULT: not started, a staging deploy ran for over 30 minutes"; return 1; }
-    log "a staging deploy is running, waiting for it to finish"
+    log "a staging deploy is running (or GitHub cannot say), waiting"
     sleep 30
   done
   api PATCH "/repos/$REPO/actions/variables/CI_LIGHT_RUNS" \
