@@ -1,0 +1,116 @@
+# A job template, never scheduled: `kubectl create job --from=cronjob/__DEPTH__`
+# starts one run. Three slots; each is a feeder, which holds the GitHub token, and
+# a runner, which never sees it and has no Kubernetes credentials.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: __DEPTH__
+  namespace: ci-shadow
+spec:
+  schedule: "0 0 31 2 *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      completionMode: Indexed
+      completions: 3
+      parallelism: 3
+      backoffLimit: 4
+      activeDeadlineSeconds: 5400
+      ttlSecondsAfterFinished: 86400
+      podFailurePolicy:
+        rules:
+          # Evicted for a staging pod: not the run's fault, the slot comes back.
+          - action: Ignore
+            onPodConditions:
+              - type: DisruptionTarget
+      template:
+        metadata:
+          labels:
+            app: ci-shadow
+        spec:
+          restartPolicy: Never
+          priorityClassName: ci-shadow-low
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          terminationGracePeriodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            fsGroup: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+            - name: shared
+              emptyDir:
+                sizeLimit: 16Mi
+            - name: work
+              emptyDir:
+                sizeLimit: 25Gi
+            - name: tools
+              emptyDir:
+                sizeLimit: 8Gi
+            - name: shm
+              emptyDir:
+                medium: Memory
+                sizeLimit: 3Gi
+            - name: scripts
+              configMap:
+                name: ci-shadow-scripts
+                defaultMode: 0555
+            - name: token
+              secret:
+                secretName: ci-shadow-github
+                defaultMode: 0440
+          containers:
+            - name: feeder
+              image: __IMAGE__
+              command: [bash, /scripts/slot-feeder.sh]
+              env:
+                - name: DEPTH
+                  value: __DEPTH__
+                - name: REPO
+                  value: thom-ba/archos-ci
+                - name: BRANCH
+                  value: tb/ci-shadow
+                - name: DEPLOY_REPO
+                  value: archos-at/archos
+                - name: JOB_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests: { cpu: 20m, memory: 64Mi, ephemeral-storage: 100Mi }
+                limits: { cpu: 200m, memory: 128Mi, ephemeral-storage: 500Mi }
+              volumeMounts:
+                - { name: shared, mountPath: /shared }
+                - { name: scripts, mountPath: /scripts }
+                - { name: token, mountPath: /secret, readOnly: true }
+            - name: runner
+              image: __IMAGE__
+              command: [bash, /scripts/slot-runner.sh]
+              env:
+                # pytest's `-n logical` counts the node's CPUs, not this limit.
+                - name: PYTEST_XDIST_AUTO_NUM_WORKERS
+                  value: "3"
+                # The gateway tests bind to $HOSTNAME.
+                - name: HOSTNAME
+                  value: 0.0.0.0
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests: { cpu: 450m, memory: 6Gi, ephemeral-storage: 4900Mi }
+                limits: { cpu: 3500m, memory: 8Gi, ephemeral-storage: 39Gi }
+              volumeMounts:
+                - { name: shared, mountPath: /shared }
+                - { name: scripts, mountPath: /scripts }
+                - { name: work, mountPath: /home/runner/_work }
+                - { name: tools, mountPath: /opt/hostedtoolcache }
+                - { name: shm, mountPath: /dev/shm }

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Install, run and remove ci-shadow: CI on runner pods in the cluster, for the test
+# copy only. Nothing here touches the real repository's CI. See README.md.
+#
+#   ci-shadow install      needs KUBECONFIG and CI_SHADOW_GITHUB_TOKEN
+#   ci-shadow run [light|full]
+#   ci-shadow status
+#   ci-shadow off          removes everything from the cluster
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+ns=ci-shadow
+image="${CI_SHADOW_IMAGE:-ghcr.io/thom-ba/ci-shadow-runner@sha256:4a457e96100d9b5bb3484b3530df03a01585e37250ce3ac8744f67630e177936}"
+
+case "${1:-}" in
+  install)
+    : "${CI_SHADOW_GITHUB_TOKEN:?a GitHub token limited to the test copy}"
+    kubectl apply -f "$here/manifests.yaml"
+    kubectl -n "$ns" create secret generic ci-shadow-github \
+      --from-file=token=<(printf '%s' "$CI_SHADOW_GITHUB_TOKEN") --dry-run=client -o yaml | kubectl apply -f -
+    kubectl -n "$ns" create configmap ci-shadow-scripts \
+      --from-file="$here/slot-feeder.sh" --from-file="$here/slot-runner.sh" --dry-run=client -o yaml | kubectl apply -f -
+    for depth in light full; do
+      sed -e "s|__DEPTH__|$depth|g" -e "s|__IMAGE__|$image|g" "$here/cronjob.yaml.in" | kubectl apply -f -
+    done
+    echo "Installed. Idle: no pods. Test it with: $0 run light"
+    ;;
+  run)
+    depth="${2:-light}"
+    job="run-$(date +%Y%m%d-%H%M%S)"
+    kubectl -n "$ns" create job "$job" --from="cronjob/$depth"
+    slot0="batch.kubernetes.io/job-name=$job,batch.kubernetes.io/job-completion-index=0"
+    until kubectl -n "$ns" get pod -l "$slot0" -o name | grep -q .; do sleep 2; done
+    kubectl -n "$ns" wait --for=condition=Ready pod -l "$slot0" --timeout=600s
+    kubectl -n "$ns" logs -f -c feeder -l "$slot0"
+    ;;
+  status)
+    kubectl -n "$ns" get cronjobs,jobs,pods
+    kubectl -n "$ns" get resourcequota ci-shadow
+    ;;
+  off)
+    kubectl delete namespace "$ns" --ignore-not-found
+    kubectl delete priorityclass ci-shadow-low --ignore-not-found
+    echo "Removed. Nothing of ci-shadow is left on the cluster."
+    ;;
+  *)
+    sed -n 2,9p "$0"
+    exit 2
+    ;;
+esac
