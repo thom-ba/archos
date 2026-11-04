@@ -15,6 +15,9 @@ Two questions, answered once in the Plan job for both test tiers.
   comment re-runs only what that push reaches. Each run's selection was sound
   against its own reference, so chaining them is sound too.
 
+A full run (ci/ci_depth.py) chains only from a full run: a green light run
+skipped most tests, so it proves nothing about what they would have said.
+
 The second is smaller when `develop` stood still, and usually larger when it
 moved: an hour of `develop` was a median 83 files, and adding it forced the
 full Python suite on 90 of 113 replayed re-runs, where the pull request's own
@@ -55,7 +58,7 @@ develop, which the deploy waits for (deploy.yml), so anything a selection
 misses turns develop red before it reaches staging.
 
 Usage: pr_selection.py BASE
-Environment: GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL, GITHUB_HEAD_REF
+Environment: GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL, GITHUB_HEAD_REF, CI_DEPTH
 (all optional: without them there is no previous green run and no recorded
 database, so the answer is the whole PR, and full for Python).
 Writes `since`, `reference`, `py_mode`, `py_extra`, `ui_mode` and `ui_files`
@@ -376,12 +379,25 @@ def _disk_readers() -> DiskReaders:
     return dict(sorted(readers.items()))
 
 
-def previous_green(get: Get, repo: str, branch: str, head: str, is_ancestor: Callable[[str], bool]) -> dict | None:
+def was_full(get: Get, repo: str, run_id: object) -> bool:
+    """Whether a green run was a full one: only those leave the `ci-green-<tree>` marker (ci.yml, `CI OK`).
+
+    An expired or missing marker reads as light, which only widens the set.
+    """
+    artifacts = get(f"/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100").get("artifacts", [])
+    return any(a.get("name", "").startswith("ci-green-") and not a.get("expired") for a in artifacts)
+
+
+def previous_green(
+    get: Get, repo: str, branch: str, head: str, is_ancestor: Callable[[str], bool], *, full_only: bool = False
+) -> dict | None:
     """The newest successful CI run of this pull request's branch at an ancestor of `head` (or `head` itself)."""
     query = urllib.parse.urlencode({"branch": branch, "event": "pull_request", "status": "success", "per_page": 30})
     for run in get(f"/repos/{repo}/actions/workflows/ci.yml/runs?{query}").get("workflow_runs", []):
         sha = run.get("head_sha", "")
-        if re.fullmatch(r"[0-9a-f]{40}", sha) and (sha == head or is_ancestor(sha)):
+        if not (re.fullmatch(r"[0-9a-f]{40}", sha) and (sha == head or is_ancestor(sha))):
+            continue
+        if not full_only or was_full(get, repo, run.get("id")):
             return run
     return None
 
@@ -442,7 +458,12 @@ def main(argv: list[str]) -> int:
 
         try:
             previous = previous_green(
-                get, os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("GITHUB_HEAD_REF", ""), head, is_ancestor
+                get,
+                os.environ.get("GITHUB_REPOSITORY", ""),
+                os.environ.get("GITHUB_HEAD_REF", ""),
+                head,
+                is_ancestor,
+                full_only=os.environ.get("CI_DEPTH") != "light",
             )
         except Exception as error:  # noqa: BLE001 - no previous run only widens the set
             print(f"previous-run lookup failed ({error}); diffing against the base", file=sys.stderr)

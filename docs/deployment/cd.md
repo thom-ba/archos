@@ -100,8 +100,9 @@ the deploy jobs, and one step in place of the secret; after that there is no
 `PULUMI_ACCESS_TOKEN` left to leak or rotate.
 
 ### 4. Branch protection (Settings → Branches)
-For `develop`, require the status checks **`CI OK`** and **`Conventional PR
-title`**. For `prod`, require the promotion PR's `CI OK`. Do not require
+For `develop`, require the status checks **`Full suite`**, **`CI OK`** and
+**`Conventional PR title`**, and turn on **Allow auto-merge**
+([why](../contributing/ci.md#how-a-ci-run-decides-what-to-run)). For `prod`, require the promotion PR's `CI OK`. Do not require
 `Security OK`: the security scans a change can fail are inside `CI OK`, the
 weekly Security run gates nothing, and a required check that never reports
 blocks every PR.
