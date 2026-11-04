@@ -10,7 +10,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 ns=ci-shadow
-image="${CI_SHADOW_IMAGE:-ghcr.io/thom-ba/ci-shadow-runner@sha256:22a6bc01f28273b04d3c75644557b15de292a145928e2dd3cd9692e412b94fd4}"
+image="${CI_SHADOW_IMAGE:-ghcr.io/thom-ba/ci-shadow-runner@sha256:10c6213782460b3cc963cd59c6dfdf5a9cd266a9749547c84f6d5e1db1e6212d}"
 
 case "${1:-}" in
   install)
