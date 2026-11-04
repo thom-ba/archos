@@ -8,7 +8,7 @@ Where it is going, with the numbers: [ci-north-star.md](ci-north-star.md).
 
 | Job to do | When | Where | Gate? |
 |---|---|---|---|
-| Prove a pull request, applied to its base, keeps every check its change could break | every push to a PR | `ci.yml` | **Yes: `CI OK`**, meant as the one required status check. On 2026-11-03 the `protect-develop` ruleset required none, so a red pull request could merge: [ci-north-star.md](ci-north-star.md#decisions-only-an-owner-can-make) |
+| Prove a pull request, applied to its base, keeps every check its change could break | the light part on every push to a PR, the rest once auto-merge is on | `ci.yml` | **Yes: `Full suite`**, with `CI OK`. On 2026-11-03 the `protect-develop` ruleset required none, so a red pull request could merge: [ci-north-star.md](ci-north-star.md#decisions-only-an-owner-can-make) |
 | Prove the merged result, build its images, tag them for the commit | every push to `develop` and `release/**` | `ci.yml` | It is what the deploy waits for |
 | Put a green `develop` commit on staging | after a green push run of CI | `deploy.yml` | Staging only ever runs a commit CI passed |
 | Put the pinned commit on production | push to `prod`, with reviewers | `deploy.yml` | The `production` environment's reviewers |
@@ -63,6 +63,40 @@ reaches production without anyone asking.
 It also lists the third-party image pins the change adds or moves
 ([`ci/pinned_images.py`](../../ci/pinned_images.py)), for trivy.
 
+**4. How much does this run owe?** Once the repository variable `CI_LIGHT_RUNS` is
+`true`, a pull request into `develop` that is still changing gets the light check
+on every push: Plan, the three Repo checks, Semgrep, the Workspace job, and
+Website, Infra, Packages and trivy when touched, plus the affected backend tests
+when testmon can select them (a change it cannot select for gets no Python tests
+until the full run). Those fail most and cost least. Backend core and suites, the
+Workspace tests, the Hatchet engine tests and the image builds run once, when
+someone asks to merge: turning on auto-merge (`gh pr merge --auto --squash`, or
+the button) starts the full run, and every later push to that pull request is
+full too ([`ci/ci_depth.py`](../../ci/ci_depth.py)). Everything else is always
+full: a push, a fork's pull request, a pull request into `release/**` or
+`claude/**`, and every run while the variable is unset.
+
+A full run reports its result as the commit status **`Full suite`** on the pull
+request's head ([`ci/full_suite_status.py`](../../ci/full_suite_status.py)). That
+status, not `CI OK`, has to hold the merge: a light run's `CI OK` is green, and
+auto-merge merges at once when every required check is already green. It is a
+status and not a job because a skipped job reports success to a required check.
+
+Three things keep the shortcut sound. A full run chooses its tests since the last
+*full* green run, never a light one (`previous_green` in
+[`ci/pr_selection.py`](../../ci/pr_selection.py)). Only a full run leaves the
+`ci-green-<tree>` marker a push reuses. And `Full suite` turns green only when the
+commit the run tested is a merge of the head it reports on.
+
+Turning it on takes three steps, in this order, because each is safe only after
+the one before:
+
+1. Land the workflow with the variable unset. Every run is full, as before, and
+   reports `Full suite`.
+2. Require `Full suite` on `develop` and turn on **Allow auto-merge**. Open pull
+   requests need a push to report the status for the first time.
+3. Set `CI_LIGHT_RUNS` to `true`. Unsetting it is the off switch: nothing to revert.
+
 ## The jobs
 
 | Job | Runs when | What it does |
@@ -71,20 +105,20 @@ It also lists the third-party image pins the change adds or moves
 | Repo checks, three legs side by side | unless reused | **lint, secrets** (`repo`): pre-commit on all files, ruff, gitleaks over the commits a PR adds (a push: its full history). **CI machinery tests** (`repo-tests`): `task be:test:harness`, the tests of `ci/`, the workflows and the release-note pipeline. **Release notes, skills, migrations** (`release-notes`): release-note lint and (PRs) the requirement, the agent-skill lockfile when the `skills` tier changed, and (PRs) the expand/contract check on added migrations (`ci/migration_contract.py`, label `migration:contract`). As one job they ran in series and finished last in 21 of 45 PR runs (2026-11-03) |
 | SAST (`semgrep`) | PRs touching code | Semgrep, diff-aware: blocks findings the PR introduces |
 | Backend affected tests (`backend-affected`) | PRs, backend tier, selection possible | per suite (core, agent_host, `sources`, the Python packages), only the tests the change reaches (`task be:test:affected`), plus the claim queues on Postgres |
-| Backend core (`backend`) | backend tier: pushes, and PRs testmon cannot select for | the core suite in 4 shards (`task be:test:shard`), each writing coverage data |
+| Backend core (`backend`) | backend tier: pushes, and full PR runs testmon cannot select for | the core suite in 4 shards (`task be:test:shard`), each writing coverage data |
 | Backend coverage gate (`backend-coverage`) | backend tier | combines the shards' data, the 65% gate, the PR comment |
-| Backend suites (`backend-suites`) | backend tier | three jobs side by side: the agent_host suite, the Python packages' suites (`sources`), and the migration test with the claim-queue suites on a real Postgres (`task be:test:postgres`) |
+| Backend suites (`backend-suites`) | backend tier: pushes, and full PR runs testmon cannot select for | three jobs side by side: the agent_host suite, the Python packages' suites (`sources`), and the migration test with the claim-queue suites on a real Postgres (`task be:test:postgres`) |
 | Workspace (`workspace`) | workspace tier | card schema check, lint, types, and the tenant-isolation suite against a real Postgres |
-| Workspace tests (`workspace-test`) | workspace tier; on a PR, unless nothing a UI spec reads changed | the vitest suite in 8 shards, split by recorded time (`tests/vitest-durations.json`, refreshed with `task workspace:test:durations`, read by `config/vitest/duration-sequencer.ts`); on a PR whose change a selection can see, only the specs it reaches (`task workspace:test:related`) |
+| Workspace tests (`workspace-test`) | workspace tier; on a full PR run, unless nothing a UI spec reads changed | the vitest suite in 8 shards, split by recorded time (`tests/vitest-durations.json`, refreshed with `task workspace:test:durations`, read by `config/vitest/duration-sequencer.ts`); on a PR whose change a selection can see, only the specs it reaches (`task workspace:test:related`) |
 | Workspace accessibility (`task workspace:a11y`) | not in CI yet: run it locally, a shard at a time | axe-core, WCAG 2.2 AA, over every `/dev` preview route except those still listed in `apps/workspace/scripts/a11y-pending-routes.json` (not yet audited; the list only shrinks), light and dark, 1440 and 390 (`task workspace:a11y -- --shard i/4`). The script starts `next dev` itself with placeholder WorkOS settings; fails on a violation not in `apps/workspace/scripts/a11y-baseline.json` and on an entry that is gone. The CI job follows in a separate PR: its first run (4 shards) failed shards 1, 3 and 4 while the same shards pass locally, so the baseline does not yet hold on the runner. On GitHub Actions the script writes each difference as an `::error` annotation, which the check-run API returns where job logs cannot be fetched |
 | Workspace coverage | PRs, workspace tier | merges the shards' coverage into the PR comment. Not in `CI OK` |
 | Website, Infra, Standalone packages | their tier | `task website:verify`; `task infra:types` + `infra:test`; `task pkg:test:*` |
-| Hatchet engine tests (`hatchet`) | `hatchet` tier: the ingest and research Hatchet code, the BFF's jobs and scheduler, the SDK pins | starts `hatchet-lite` at production's tag and its Postgres, makes an API token in the container (`ci/hatchet_engine.sh`), and runs every suite that otherwise skips without an engine: `test_ingest_workflow_engine.py`, `test_research_workflow_engine.py` and each `bff/*/orchestrator.integration.spec.ts` over the RLS script's database. Fails when one of them ran no test or skipped one |
+| Hatchet engine tests (`hatchet`) | full runs, `hatchet` tier: the ingest and research Hatchet code, the BFF's jobs and scheduler, the SDK pins | starts `hatchet-lite` at production's tag and its Postgres, makes an API token in the container (`ci/hatchet_engine.sh`), and runs every suite that otherwise skips without an engine: `test_ingest_workflow_engine.py`, `test_research_workflow_engine.py` and each `bff/*/orchestrator.integration.spec.ts` over the RLS script's database. Fails when one of them ran no test or skipped one |
 | Image vulns (`trivy`) | a pin added or moved | trivy on those pins |
-| Image build (`image`) | PRs that change an image's inputs | builds it, read-only token, no push. For the UI this IS the production build check: `workspace:build` is not run separately |
+| Image build (`image`) | full PR runs that change an image's inputs | builds it, read-only token, no push. For the UI this IS the production build check: `workspace:build` is not run separately |
 | Image build + push (`image-push`) | pushes, image not in GHCR | builds and pushes `inputs-<hash>` and the layer cache |
 | Tag images (`publish`) | pushes, after every check passed | `sha-<commit>` on all three images, and `latest` on `develop` |
-| `CI OK` (`ci-ok`) | always | fails unless every needed job passed or was skipped; on a green PR, records the tested tree for reuse |
+| `CI OK` (`ci-ok`) | always | fails unless every needed job passed or was skipped; on a full PR run, reports `Full suite` and, when green, records the tested tree for reuse |
 
 One more workflow runs on a push to `develop` and is not CI:
 **Test database** (`testmon.yml`) records which test runs which code
@@ -435,9 +469,13 @@ Checked against GitHub's feature set on 2026-10-09.
 
 ## Repository settings this design expects
 
-- Required status checks on `develop`: **`CI OK`** and **`Conventional PR
-  title`**. Not `Security OK`: that job no longer exists, and a required check
-  that never reports blocks every PR.
+- Required status checks on `develop`: **`Full suite`**, **`CI OK`** and
+  **`Conventional PR title`**. Not `Security OK`: that job no longer exists, and
+  a required check that never reports blocks every PR.
+- **Allow auto-merge** on (Settings → General). It is how a pull request asks for
+  its full run.
+- The variable `CI_LIGHT_RUNS`, only after both of the above
+  ([why](#how-a-ci-run-decides-what-to-run)).
 - The `staging` and `production` environments as in
   [cd.md](../deployment/cd.md).
 - Optional: the secret `POSTHOG_CLI_API_KEY` and the variable
