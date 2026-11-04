@@ -60,6 +60,8 @@ def evaluate(expression: str, **context) -> object:
         "cancelled": lambda: False,
         "success": lambda: True,
         "contains": lambda haystack, needle: needle in haystack,
+        # No repository variable set: what every run on archos-at/archos sees.
+        "vars": Ctx({}),
     }
     return eval(text, {"__builtins__": {}}, names)  # noqa: S307 - our own workflow files
 

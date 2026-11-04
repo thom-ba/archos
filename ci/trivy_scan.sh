@@ -28,6 +28,11 @@ pins="${1:?usage: trivy_scan.sh <pins file>}"
 
 cache="$PWD/.trivy-cache"
 mkdir -p "$cache"
+ignorefile=/config/.trivyignore.yaml
+if [ "${CI_NO_DOCKER:-}" = "true" ]; then
+  ignorefile="$PWD/.trivyignore.yaml"
+  trivy() { command trivy --cache-dir "$cache" "$@"; }
+else
 trivy() {
   docker run --rm \
     --user "$(id -u):$(id -g)" \
@@ -38,6 +43,7 @@ trivy() {
     --cache-dir /cache \
     "$@"
 }
+fi
 
 downloaded=0
 for attempt in 1 2 3 4 5; do
@@ -58,7 +64,7 @@ while read -r image; do
   trivy image \
     --scanners vuln \
     --skip-db-update \
-    --ignorefile /config/.trivyignore.yaml \
+    --ignorefile "$ignorefile" \
     --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$image" || failed=1
 done < "$pins"
 exit "$failed"
