@@ -184,9 +184,10 @@ people to stop running the gate. The engine also writes its vocabulary to
 `tests/fixtures/vocabulary.json`, which the agent's own suite reads to pin its
 copy of the engine's names without installing the engine.
 
-The single required status check is **CI OK**
-([`ci.yml`](../../.github/workflows/ci.yml)), which passes only when every
-needed job succeeded or was skipped by the path filter.
+**CI OK** ([`ci.yml`](../../.github/workflows/ci.yml)) passes only when every
+needed job succeeded or was skipped. A push gets the light checks; turning on
+auto-merge runs the rest, and **Full suite** is the status that holds the merge
+until they pass ([ci.md](ci.md#how-a-ci-run-decides-what-to-run)).
 
 ## The live turn-shape eval
 

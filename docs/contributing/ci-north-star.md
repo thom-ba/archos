@@ -159,6 +159,7 @@ is on the critical path of something above.
 | Decision | Why | Where |
 |---|---|---|
 | Make `CI OK` and `Conventional PR title` required checks | The `protect-develop` ruleset requires no status check: a red PR can merge, and the docs said otherwise | Settings → Rules → `protect-develop` |
+| Require `Full suite`, Allow auto-merge, then set `CI_LIGHT_RUNS` | Light checks on every push and the full suite once, at merge. [ci.md](ci.md#how-a-ci-run-decides-what-to-run) has the order, which matters | the ruleset, Settings → General, `vars.CI_LIGHT_RUNS` |
 | Squash merges only | 4 of 32 push runs missed reuse on two-parent merge commits, and their subjects break Conventional Commits on develop | the same ruleset, allowed merge methods |
 | GitHub plan once private | The merge queue and artifact attestations on a private repository need Enterprise Cloud; without it slices 2 and 3 take their plan-independent forms | billing |
 | The ARC scale set | Set `CI_RUNNER` to it when it exists, and `DEPLOY_RUNNER` to runners outside the cluster they deploy to. Its runner image needs Docker, python3, jq, gh, curl and git, and persistent volumes for the caches in slice 9 | `vars.CI_RUNNER`, `vars.DEPLOY_RUNNER` |
