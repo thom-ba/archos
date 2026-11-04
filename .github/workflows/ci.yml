@@ -95,10 +95,11 @@ jobs:
       packages: ${{ steps.filter.outputs.packages || 'false' }}
       migrations: ${{ steps.filter.outputs.migrations || 'false' }}
       sast: ${{ steps.filter.outputs.sast || 'false' }}
-      hatchet: ${{ steps.filter.outputs.hatchet || 'false' }}
+      # Hatchet and the image builds need a Docker daemon; a runner without one skips them.
+      hatchet: ${{ vars.CI_NO_DOCKER != 'true' && steps.filter.outputs.hatchet || 'false' }}
       skills: ${{ steps.filter.outputs.skills || 'false' }}
       # The images this run builds (a matrix), and all three with their hashes.
-      build: ${{ steps.images.outputs.build }}
+      build: ${{ vars.CI_NO_DOCKER != 'true' && steps.images.outputs.build || '[]' }}
       images: ${{ steps.images.outputs.images }}
       # Third-party image pins this change adds or moves, for trivy.
       pins: ${{ steps.pins.outputs.pins || '[]' }}
@@ -320,12 +321,17 @@ jobs:
       - name: Secret scan (gitleaks)
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_NO_DOCKER: ${{ vars.CI_NO_DOCKER }}
         run: |
           range="--full-history HEAD"
           if [ -n "$BASE_SHA" ]; then range="$BASE_SHA..HEAD"; fi
-          docker run --rm -v "$GITHUB_WORKSPACE:/repo" \
-            zricethezav/gitleaks:v8.30.1 detect --source /repo --redact -v \
-            --log-opts="$range"
+          if [ "$CI_NO_DOCKER" = "true" ]; then
+            gitleaks detect --source "$GITHUB_WORKSPACE" --redact -v --log-opts="$range"
+          else
+            docker run --rm -v "$GITHUB_WORKSPACE:/repo" \
+              zricethezav/gitleaks:v8.30.1 detect --source /repo --redact -v \
+              --log-opts="$range"
+          fi
 
 
   # The tests of ci/, the workflows and the release-note pipeline. Here rather
@@ -461,7 +467,7 @@ jobs:
     container:
       # Pinned: an unpinned scanner image changes the rules under a PR that
       # did not change, and nobody can tell which version said what.
-      image: semgrep/semgrep:1.177.0
+      image: ${{ vars.CI_NO_DOCKER != 'true' && 'semgrep/semgrep:1.177.0' || '' }}
     steps:
       # Shallow, on purpose: `semgrep ci` finds the merge base itself, asking
       # the GitHub API first (GH_TOKEN below) and deepening the clone only if
@@ -506,7 +512,7 @@ jobs:
     # store test cannot run it against nothing.
     services:
       qdrant:
-        image: qdrant/qdrant:v1.19.2
+        image: ${{ vars.CI_NO_DOCKER != 'true' && 'qdrant/qdrant:v1.19.2' || '' }}
         ports:
           - 6333:6333
     env:
@@ -515,6 +521,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Start Qdrant without Docker
+        if: vars.CI_NO_DOCKER == 'true'
+        run: bash ci/qdrant_local.sh
       # ONE interpreter, the one the backend image ships (apps/agent-host/Dockerfile).
       - uses: ./.github/actions/setup-python-env
         with:
@@ -576,7 +585,7 @@ jobs:
         suite: [agent_host, sources, migration and claim queues]
     services:
       qdrant:
-        image: qdrant/qdrant:v1.19.2
+        image: ${{ vars.CI_NO_DOCKER != 'true' && 'qdrant/qdrant:v1.19.2' || '' }}
         ports:
           - 6333:6333
     env:
@@ -585,6 +594,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Start Qdrant without Docker
+        if: vars.CI_NO_DOCKER == 'true'
+        run: bash ci/qdrant_local.sh
       - uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.14"
@@ -641,7 +653,7 @@ jobs:
           - { suite: sources }
     services:
       qdrant:
-        image: qdrant/qdrant:v1.19.2
+        image: ${{ vars.CI_NO_DOCKER != 'true' && 'qdrant/qdrant:v1.19.2' || '' }}
         ports:
           - 6333:6333
     env:
@@ -650,6 +662,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Start Qdrant without Docker
+        if: vars.CI_NO_DOCKER == 'true'
+        run: bash ci/qdrant_local.sh
       - uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.14"
@@ -824,6 +839,7 @@ jobs:
       # The website's accessibility gate drives Chromium; this installs its system libraries
       # (the version is apps/website's playwright devDependency).
       - run: npx --yes playwright@1.63.0 install-deps chromium
+        if: vars.CI_NO_DOCKER != 'true'
       - run: task website:verify
 
   infra:
@@ -983,6 +999,8 @@ jobs:
           path: .trivy-cache/fanal
           key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
       - run: bash ci/trivy_scan.sh pins.txt
+        env:
+          CI_NO_DOCKER: ${{ vars.CI_NO_DOCKER }}
       - name: Save the layer analysis
         if: always() && hashFiles('.trivy-cache/fanal/**') != ''
         continue-on-error: true
