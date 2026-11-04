@@ -1,0 +1,64 @@
+# The parts of ci-shadow that exist while nothing is running: no pods, no CPU,
+# no memory. See README.md. Applied by `ci-shadow install`, removed by `ci-shadow off`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ci-shadow
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+---
+# Below every staging pod (priority 0): a staging pod that needs room evicts a
+# runner, and a runner never evicts anything.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ci-shadow-low
+value: -100
+globalDefault: false
+preemptionPolicy: Never
+description: ci-shadow test runners. Staging pods evict them when they need the room.
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ci-shadow
+  namespace: ci-shadow
+spec:
+  hard:
+    pods: "3"
+    requests.cpu: 1500m
+    requests.memory: 19Gi
+    limits.cpu: "11"
+    limits.memory: 25Gi
+    requests.ephemeral-storage: 15Gi
+    limits.ephemeral-storage: 120Gi
+---
+# Runner pods reach DNS and the public internet, nothing in the cluster, and
+# nothing can call them. The ranges are ADR-0119's CLUSTER_PRIVATE_RANGES.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolation
+  namespace: ci-shadow
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8

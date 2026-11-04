@@ -215,6 +215,7 @@ jobs:
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           BASE: ${{ github.event.pull_request.base.sha }}
           CI_DEPTH: ${{ steps.depth.outputs.depth || 'full' }}
+          CI_NO_DOCKER: ${{ vars.CI_NO_DOCKER }}
         run: python3 ci/pr_selection.py "$BASE"
 
       - name: Image pins this change adds

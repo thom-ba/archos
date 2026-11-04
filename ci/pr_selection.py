@@ -457,14 +457,16 @@ def main(argv: list[str]) -> int:
             )
 
         try:
-            previous = previous_green(
-                get,
-                os.environ.get("GITHUB_REPOSITORY", ""),
-                os.environ.get("GITHUB_HEAD_REF", ""),
-                head,
-                is_ancestor,
-                full_only=os.environ.get("CI_DEPTH") != "light",
-            )
+            # ci-shadow repeats the same code on purpose: always test against the base.
+            if os.environ.get("CI_NO_DOCKER") != "true":
+                previous = previous_green(
+                    get,
+                    os.environ.get("GITHUB_REPOSITORY", ""),
+                    os.environ.get("GITHUB_HEAD_REF", ""),
+                    head,
+                    is_ancestor,
+                    full_only=os.environ.get("CI_DEPTH") != "light",
+                )
         except Exception as error:  # noqa: BLE001 - no previous run only widens the set
             print(f"previous-run lookup failed ({error}); diffing against the base", file=sys.stderr)
     test_files, disk_readers = _python_test_files(), _disk_readers()
