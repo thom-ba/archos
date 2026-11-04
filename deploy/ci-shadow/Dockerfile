@@ -20,7 +20,7 @@ ARG POSTGRES_MAJOR=16
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl gnupg xz-utils build-essential \
       git git-lfs jq zstd unzip zip file locales tzdata rsync openssh-client shellcheck \
-      python3 python3-venv python3-pip \
+      python3 python3-venv python3-pip eatmydata \
  && install -d /usr/share/postgresql-common/pgdg \
  && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
  && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
