@@ -200,7 +200,8 @@ replaced `agent_capability_missing`.
 
 | Term | Meaning | Defined in |
 |---|---|---|
-| `CI OK` | The single required status check: passes only when every needed job passed or was skipped | [`docs/contributing/ci.md`](contributing/ci.md) |
+| `CI OK` | Passes only when every job the run needed passed or was skipped | [`docs/contributing/ci.md`](contributing/ci.md) |
+| `Full suite` | The commit status that holds a merge until a full run has passed | [`docs/contributing/ci.md`](contributing/ci.md) |
 | Plan | CI's first job: what the change touched, whether the tree was already tested, which images to build | [`docs/contributing/ci.md`](contributing/ci.md) |
 | Tier | A path group in `.github/filters.yml` that gates a set of jobs. A skipped tier counts as passed | [`.github/filters.yml`](../.github/filters.yml) |
 | Last green commit | The newest commit CI passed on a branch, which a push diffs against instead of the previous push | [`ci/last_green.py`](../ci/last_green.py) |
