@@ -55,10 +55,10 @@ spec:
                 sizeLimit: 16Mi
             - name: work
               emptyDir:
-                sizeLimit: 25Gi
+                sizeLimit: 10Gi
             - name: tools
               emptyDir:
-                sizeLimit: 8Gi
+                sizeLimit: 3Gi
             - name: shm
               emptyDir:
                 medium: Memory
@@ -115,7 +115,7 @@ spec:
                   drop: [ALL]
               resources:
                 requests: { cpu: 450m, memory: 4Gi, ephemeral-storage: 4900Mi }
-                limits: { cpu: 3500m, memory: 7Gi, ephemeral-storage: 39Gi }
+                limits: { cpu: 3500m, memory: 7Gi, ephemeral-storage: 15Gi }
               volumeMounts:
                 - { name: shared, mountPath: /shared }
                 - { name: scripts, mountPath: /scripts }

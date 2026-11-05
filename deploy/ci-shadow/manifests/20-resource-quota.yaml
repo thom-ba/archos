@@ -11,4 +11,4 @@ spec:
     limits.cpu: "12"
     limits.memory: 22Gi
     requests.ephemeral-storage: 15Gi
-    limits.ephemeral-storage: 120Gi
+    limits.ephemeral-storage: 48Gi
