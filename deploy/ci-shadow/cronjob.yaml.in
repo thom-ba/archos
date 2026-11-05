@@ -33,7 +33,8 @@ spec:
           priorityClassName: ci-shadow-low
           automountServiceAccountToken: false
           enableServiceLinks: false
-          terminationGracePeriodSeconds: 20
+          # A staging pod waits this long for the room; these scripts have nothing to save.
+          terminationGracePeriodSeconds: 5
           # One slot per node where it can be: a run's disk and CPU then don't pile up on one.
           topologySpreadConstraints:
             - maxSkew: 1
