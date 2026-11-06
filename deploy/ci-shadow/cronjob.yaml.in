@@ -115,7 +115,7 @@ spec:
                 capabilities:
                   drop: [ALL]
               resources:
-                requests: { cpu: 450m, memory: 4Gi, ephemeral-storage: 4900Mi }
+                requests: { cpu: 250m, memory: 4Gi, ephemeral-storage: 4900Mi }
                 limits: { cpu: 3500m, memory: 7Gi, ephemeral-storage: 15Gi }
               volumeMounts:
                 - { name: shared, mountPath: /shared }

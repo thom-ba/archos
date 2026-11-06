@@ -21,7 +21,7 @@ Idle, it runs no pods and uses no CPU or memory. `./ci-shadow off` removes every
 - **Priority -100, and it never preempts.** A staging pod that needs room evicts a runner
   within seconds; a runner never evicts anything. Evicted slots come back and rejoin the
   run, whose interrupted jobs go red after GitHub's 10-minute timeout.
-- **Small requests, capped.** 3 pods at most, 0.5 CPU and 4 GiB requested each. The
+- **Small requests, capped.** 3 pods at most, 0.25 CPU and 4 GiB requested each. The
   autoscaler is at its maximum of 4 nodes, so a run cannot add nodes.
 - **It waits for deploys.** A run does not start while `Deploy (staging)` is running.
 - **Isolation.** Own namespace at the Baseline Pod Security Standard, no service-account
