@@ -5,12 +5,18 @@
 set -u
 
 cd /home/runner || exit 1
+# What the image ships in $HOME. A pod runs several jobs and each must start as on a
+# fresh runner: uv's Python left here ends up in a cached .venv that no other pod can use.
+shipped="$(ls -A /home/runner)"
 while :; do
   [ -e /shared/done ] && exit 0
   if mv /shared/jit /shared/busy 2>/dev/null; then
     config="$(cat /shared/busy)"
     : >/shared/busy
-    find /home/runner/_work /dev/shm -mindepth 1 -delete 2>/dev/null
+    find /home/runner/_work /home/runner/.npm-global /dev/shm /tmp -mindepth 1 -delete 2>/dev/null
+    ls -A /home/runner | grep -vxF "$shipped" | while read -r leftover; do
+      rm -rf "/home/runner/${leftover:?}"
+    done
     ./run.sh --jitconfig "$config" &
     pid=$!
     unset config

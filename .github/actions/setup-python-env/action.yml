@@ -51,5 +51,5 @@ runs:
         # A venv built before copy mode: `UV_LINK_MODE=copy uv sync --group dev --reinstall`.
         UV_LINK_MODE: copy
       run: |
-        [ -x .venv/bin/python ] || uv venv --python "$PYTHON_VERSION" .venv
+        [ -x .venv/bin/python ] || uv venv --clear --python "$PYTHON_VERSION" .venv
         uv sync --group dev

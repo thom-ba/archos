@@ -8,7 +8,7 @@ spec:
     pods: "3"
     requests.cpu: 900m
     requests.memory: 13Gi
-    limits.cpu: "12"
+    limits.cpu: "10"
     limits.memory: 22Gi
     requests.ephemeral-storage: 15Gi
     limits.ephemeral-storage: 48Gi
