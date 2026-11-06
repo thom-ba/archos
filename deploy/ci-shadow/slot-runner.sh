@@ -17,7 +17,9 @@ while :; do
     ls -A /home/runner | grep -vxF "$shipped" | while read -r leftover; do
       rm -rf "/home/runner/${leftover:?}"
     done
-    ./run.sh --jitconfig "$config" &
+    # No disk syncs: nothing here has to survive a crash. On staging's nodes one synced
+    # write took 113-412 ms, which timed tests out and loads the disks staging runs on.
+    eatmydata ./run.sh --jitconfig "$config" &
     pid=$!
     unset config
     while kill -0 "$pid" 2>/dev/null; do

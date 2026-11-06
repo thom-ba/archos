@@ -23,6 +23,8 @@ Idle, it runs no pods and uses no CPU or memory. `./ci-shadow off` removes every
   run, whose interrupted jobs go red after GitHub's 10-minute timeout.
 - **Small requests, capped.** 3 pods at most, 0.25 CPU and 4 GiB requested each. The
   autoscaler is at its maximum of 4 nodes, so a run cannot add nodes.
+- **No disk syncs.** Every job runs under `eatmydata`. One synced write took 113-412 ms on
+  these nodes, so syncing timed tests out and added load to the disks staging runs on.
 - **It waits for deploys.** A run does not start while `Deploy (staging)` is running.
 - **Isolation.** Own namespace at the Baseline Pod Security Standard, no service-account
   token, no privileges, and egress to DNS and the public internet only: not Postgres, not
