@@ -7,12 +7,12 @@ variables stay as they are, and every result lands on the test copy.
 ## Run it
 
 ```bash
-kubectl -n ci-shadow create job run-$(date +%s) --from=cronjob/light
+kubectl -n ci-shadow get configmap ci-shadow-scripts -o jsonpath='{.data.run\.sh}' | bash -s light
 ```
 
-`light` is the light job set, `full` the full one. With this directory checked out,
-`./ci-shadow run light` does the same and follows the log, which ends with a line per
-job and `RESULT: success` or `failure`.
+Only `kubectl` and cluster access are needed. `light` is the light job set, `full` the
+full one. The log gives a progress line a minute, then a line per job and
+`RESULT: success` or `failure`. A dropped connection only stops the log, not the run.
 
 Idle, it runs no pods and uses no CPU or memory. `./ci-shadow off` removes everything.
 
