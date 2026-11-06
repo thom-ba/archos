@@ -107,6 +107,7 @@ sha="$(wait_for_marker)" || { log "the run never started"; finish; }
 log "slot $index following commit ${sha:0:9}"
 
 deadline=$((SECONDS + 300))
+next_progress=$((SECONDS + 60))
 while :; do
   run="$(find_run "$sha")"
   if [ -z "$run" ]; then
@@ -119,6 +120,14 @@ while :; do
       report "$(jq -r .id <<<"$run")" "$run"
     fi
     finish
+  fi
+  # A line a minute: the log says how far it is, and the API server's proxy
+  # drops a `logs -f` that stays silent for a few minutes.
+  if [ "$index" = 0 ] && [ -n "$run" ] && [ "$SECONDS" -ge "$next_progress" ]; then
+    next_progress=$((SECONDS + 60))
+    log "$(api GET "/repos/$REPO/actions/runs/$(jq -r .id <<<"$run")/jobs?per_page=100" | jq -r '
+      [.jobs[] | select(.conclusion != "skipped")] as $jobs
+      | "\($jobs | map(select(.status == "completed")) | length) of \($jobs | length) jobs done, \($jobs | map(select(.conclusion == "failure")) | length) failed, \($jobs | map(select(.status == "in_progress")) | length) running"')"
   fi
   if [ ! -e /shared/jit ] && [ ! -e /shared/busy ]; then
     mint || log "could not register a runner, retrying"

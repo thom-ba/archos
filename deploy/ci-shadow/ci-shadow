@@ -36,7 +36,12 @@ case "${1:-}" in
     slot0="batch.kubernetes.io/job-name=$job,batch.kubernetes.io/job-completion-index=0"
     until kubectl -n "$ns" get pod -l "$slot0" -o name | grep -q .; do sleep 2; done
     kubectl -n "$ns" wait --for=condition=Ready pod -l "$slot0" --timeout=600s
-    kubectl -n "$ns" logs -f -c feeder -l "$slot0"
+    # A dropped stream is not the end of the run: reattach until the slot ends.
+    tail=(--tail=-1)
+    until kubectl -n "$ns" logs -f -c feeder -l "$slot0" "${tail[@]}"; do
+      sleep 5
+      tail=(--since=70s)
+    done
     ;;
   status)
     kubectl -n "$ns" get cronjobs,jobs,pods
