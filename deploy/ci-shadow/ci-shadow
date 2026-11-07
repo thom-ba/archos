@@ -54,6 +54,11 @@ case "${1:-}" in
         --title "ci-shadow: archos-at/archos#$n" \
         --body "ci-shadow's copy of https://github.com/archos-at/archos/pull/$n merged with tb/ci-shadow. Never merge." >/dev/null
     fi
+    # CI reads labels such as no-release-note live, so the copy carries the real ones.
+    gh pr view "$n" -R archos-at/archos --json labels --jq '.labels[].name' | while read -r label; do
+      gh label create "$label" -R thom-ba/archos-ci --force >/dev/null
+      gh pr edit "$branch" -R thom-ba/archos-ci --add-label "$label" >/dev/null
+    done
     echo "testing #$n at ${head:0:9} on $branch"
     bash "$here/run.sh" "${3:-full}" "$branch"
     ;;
