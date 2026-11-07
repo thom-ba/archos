@@ -17,7 +17,8 @@ spec:
       parallelism: 3
       backoffLimit: 4
       activeDeadlineSeconds: 5400
-      ttlSecondsAfterFinished: 86400
+      # Finished slots still hold their disks; results stay on GitHub.
+      ttlSecondsAfterFinished: 600
       podFailurePolicy:
         rules:
           # Evicted for a staging pod: not the run's fault, the slot comes back.
@@ -54,12 +55,20 @@ spec:
             - name: shared
               emptyDir:
                 sizeLimit: 16Mi
-            - name: work
-              emptyDir:
-                sizeLimit: 10Gi
-            - name: tools
-              emptyDir:
-                sizeLimit: 3Gi
+            # The slot's own disk, gone with the pod: a synced write takes 0.6 ms on it,
+            # 22-651 ms on staging's node disks, and a full one stops only this slot.
+            - name: scratch
+              ephemeral:
+                volumeClaimTemplate:
+                  metadata:
+                    labels:
+                      app: ci-shadow
+                  spec:
+                    accessModes: [ReadWriteOnce]
+                    storageClassName: single-replica
+                    resources:
+                      requests:
+                        storage: 15Gi
             - name: shm
               emptyDir:
                 medium: Memory
@@ -115,11 +124,14 @@ spec:
                 capabilities:
                   drop: [ALL]
               resources:
-                requests: { cpu: 250m, memory: 4Gi, ephemeral-storage: 4900Mi }
-                limits: { cpu: "3", memory: 7Gi, ephemeral-storage: 15Gi }
+                requests: { cpu: 250m, memory: 4Gi, ephemeral-storage: 1Gi }
+                limits: { cpu: "3", memory: 7Gi, ephemeral-storage: 5Gi }
               volumeMounts:
                 - { name: shared, mountPath: /shared }
                 - { name: scripts, mountPath: /scripts }
-                - { name: work, mountPath: /home/runner/_work }
-                - { name: tools, mountPath: /opt/hostedtoolcache }
+                - { name: scratch, mountPath: /home/runner/_work, subPath: work }
+                - { name: scratch, mountPath: /opt/hostedtoolcache, subPath: tools }
+                - { name: scratch, mountPath: /home/runner/.cache, subPath: cache }
+                - { name: scratch, mountPath: /home/runner/.npm, subPath: npm }
+                - { name: scratch, mountPath: /tmp, subPath: tmp }
                 - { name: shm, mountPath: /dev/shm }

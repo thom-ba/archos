@@ -13,7 +13,8 @@ while :; do
   if mv /shared/jit /shared/busy 2>/dev/null; then
     config="$(cat /shared/busy)"
     : >/shared/busy
-    find /home/runner/_work /home/runner/.npm-global /dev/shm /tmp -mindepth 1 -delete 2>/dev/null
+    find /home/runner/_work /home/runner/.cache /home/runner/.npm /home/runner/.npm-global \
+      /dev/shm /tmp -mindepth 1 -delete 2>/dev/null
     ls -A /home/runner | grep -vxF "$shipped" | while read -r leftover; do
       rm -rf "/home/runner/${leftover:?}"
     done

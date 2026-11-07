@@ -10,5 +10,7 @@ spec:
     requests.memory: 13Gi
     limits.cpu: "10"
     limits.memory: 22Gi
-    requests.ephemeral-storage: 15Gi
-    limits.ephemeral-storage: 48Gi
+    requests.ephemeral-storage: 4Gi
+    limits.ephemeral-storage: 17Gi
+    persistentvolumeclaims: "3"
+    requests.storage: 45Gi
