@@ -1,0 +1,26 @@
+name: ci-shadow image
+on:
+  push:
+    branches: [ci-shadow-image]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          image="ghcr.io/thom-ba/ci-shadow-runner:${GITHUB_SHA::12}"
+          docker build -t "$image" \
+            --label org.opencontainers.image.source=https://github.com/thom-ba/archos \
+            deploy/ci-shadow
+          docker push "$image"
+          docker inspect --format '{{index .RepoDigests 0}}' "$image" | tee -a "$GITHUB_STEP_SUMMARY"
