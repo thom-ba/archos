@@ -44,6 +44,16 @@ unset, `ci.yml` behaves as before.
 It tests the test copy's branch `tb/ci-shadow`, which is `develop` at its last refresh
 plus light runs and these changes, not your latest commit.
 
+To test a pull request of `archos-at/archos` instead, with push access to the test copy:
+
+```bash
+./ci-shadow pr 1531          # full set; `./ci-shadow pr 1531 light` for the light one
+```
+
+It merges the pull request's head with `tb/ci-shadow`, pushes that as `shadow/pr-1531`
+to the test copy, opens a draft pull request there and runs it. The result lands on that
+pull request, not on the real one. Its base is the test copy's `develop`.
+
 ## Install
 
 ```bash

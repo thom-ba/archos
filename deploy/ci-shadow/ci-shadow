@@ -4,6 +4,7 @@
 #
 #   ci-shadow install      needs KUBECONFIG; CI_SHADOW_GITHUB_TOKEN the first time
 #   ci-shadow run [light|full]
+#   ci-shadow pr <number> [full|light]   a pull request of archos-at/archos
 #   ci-shadow status
 #   ci-shadow off          removes everything from the cluster
 set -euo pipefail
@@ -32,6 +33,30 @@ case "${1:-}" in
   run)
     bash "$here/run.sh" "${2:-light}"
     ;;
+  pr)
+    # The pull request's head merged with tb/ci-shadow, as a pull request on the test
+    # copy; nothing on archos-at/archos changes. Needs push access to the test copy.
+    n="${2:?usage: ci-shadow pr <number> [full|light]}"
+    test_copy=git@github.com:thom-ba/archos-ci.git
+    branch="shadow/pr-$n"
+    git -C "$here" fetch -q https://github.com/archos-at/archos.git "pull/$n/head"
+    head="$(git -C "$here" rev-parse FETCH_HEAD)"
+    git -C "$here" fetch -q "$test_copy" tb/ci-shadow
+    shadow="$(git -C "$here" rev-parse FETCH_HEAD)"
+    tree="$(git -C "$here" merge-tree --write-tree "$head" "$shadow")" \
+      || { echo "#$n conflicts with tb/ci-shadow" >&2; exit 1; }
+    # [skip ci]: the push starts nothing; the run starts on the commit slot 0 adds.
+    commit="$(git -C "$here" commit-tree "$tree" -p "$head" -p "$shadow" \
+      -m "ci-shadow: archos-at/archos#$n at ${head:0:9} [skip ci]")"
+    git -C "$here" push -q --force "$test_copy" "$commit:refs/heads/$branch"
+    if [ -z "$(gh pr list -R thom-ba/archos-ci --head "$branch" --state open --json number --jq '.[].number')" ]; then
+      gh pr create -R thom-ba/archos-ci --head "$branch" --base develop --draft --assignee @me \
+        --title "ci-shadow: archos-at/archos#$n" \
+        --body "ci-shadow's copy of https://github.com/archos-at/archos/pull/$n merged with tb/ci-shadow. Never merge." >/dev/null
+    fi
+    echo "testing #$n at ${head:0:9} on $branch"
+    bash "$here/run.sh" "${3:-full}" "$branch"
+    ;;
   status)
     kubectl -n "$ns" get cronjobs,jobs,pods
     kubectl -n "$ns" get resourcequota ci-shadow
@@ -42,7 +67,7 @@ case "${1:-}" in
     echo "Removed. Nothing of ci-shadow is left on the cluster."
     ;;
   *)
-    sed -n 2,9p "$0"
+    sed -n 2,10p "$0"
     exit 2
     ;;
 esac
