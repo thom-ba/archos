@@ -24,7 +24,7 @@ Idle, it runs no pods and uses no CPU or memory. `./ci-shadow off` removes every
 - **Small requests, capped.** 3 pods at most, 0.25 CPU and 4 GiB requested each. The
   autoscaler is at its maximum of 4 nodes, so a run cannot add nodes.
 - **Off staging's node disks.** Each slot gets its own 15 GiB `single-replica` volume for
-  the job folder, tools, caches and `/tmp`, deleted 10 minutes after the run: 3 volumes,
+  the job folder, caches and `/tmp`, deleted 10 minutes after the run: 3 volumes,
   45 GiB at most. A synced write takes 0.6 ms there, 22-651 ms on the node disks, and a
   full volume stops only its slot. Jobs also run under `eatmydata`, without disk syncs.
 - **It waits for deploys.** A run does not start while `Deploy (staging)` is running.
@@ -63,6 +63,11 @@ KUBECONFIG=... CI_SHADOW_GITHUB_TOKEN=... ./ci-shadow install
 The token is a fine-grained one for `thom-ba/archos-ci` only: Administration, Actions,
 Contents and Variables read and write. The image is public, built from `Dockerfile`, and
 needs no pull secret.
+
+The image ships what CI's setup steps would otherwise download in every job: Python and
+Node in GitHub's tool cache (`/opt/hostedtoolcache`, not on the volume, so the image's copy
+is seen), task and Bun on the PATH, which `setup-task` and `setup-bun` then skip. Keep its
+versions on the repo's pins; one that falls behind only makes the jobs download again.
 
 ## Why not actions-runner-controller
 

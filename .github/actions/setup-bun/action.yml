@@ -27,4 +27,6 @@ runs:
       shell: bash
       env:
         BUN_VERSION: ${{ inputs.version }}
-      run: npm i -g "bun@${BUN_VERSION}"
+      # A runner image that ships this version (deploy/ci-shadow's) skips the install.
+      run: |
+        [ "$(bun --version 2>/dev/null)" = "$BUN_VERSION" ] || npm i -g "bun@${BUN_VERSION}"

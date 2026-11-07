@@ -130,7 +130,6 @@ spec:
                 - { name: shared, mountPath: /shared }
                 - { name: scripts, mountPath: /scripts }
                 - { name: scratch, mountPath: /home/runner/_work, subPath: work }
-                - { name: scratch, mountPath: /opt/hostedtoolcache, subPath: tools }
                 - { name: scratch, mountPath: /home/runner/.cache, subPath: cache }
                 - { name: scratch, mountPath: /home/runner/.npm, subPath: npm }
                 - { name: scratch, mountPath: /tmp, subPath: tmp }

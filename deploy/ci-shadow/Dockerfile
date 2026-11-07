@@ -7,6 +7,7 @@
 
 FROM zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f AS gitleaks
 FROM aquasec/trivy:0.61.1@sha256:91bcccab7cb503127b0d792db7c652c4e556c9ff30eeb0908b6ae1980d7727ad AS trivy
+FROM oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288 AS bun
 
 FROM ghcr.io/actions/actions-runner:2.338.0@sha256:4ffadc0002b2581327e06101fc8c06cd189232baf79fe561fac9caeb76f5e807
 
@@ -37,14 +38,40 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
-# Node on the PATH before any setup step: setup-task and setup-bun install with
-# `npm i -g`, relying on every GitHub runner image shipping Node.
-ARG NODE_VERSION=22.23.3
-ARG NODE_SHA256=df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de
+# The toolchains CI's setup steps would download in every job, where those steps look
+# first: Python and Node in GitHub's tool cache, task and Bun on the PATH. A pin that
+# moves past these only makes the job download again; keep them on the repo's pins
+# (setup-python-env, .node-version, setup-task, setup-bun).
+ARG PYTHON_VERSION=3.14.10
+ARG PYTHON_BUILD=40336797752
+ARG PYTHON_SHA256=d67d217db8480fd474bac19db80f6b956362432cca30ed6ac6fbe5a2bba6b4cd
+RUN curl -fsSL -o /tmp/python.tar.gz "https://github.com/actions/python-versions/releases/download/${PYTHON_VERSION}-${PYTHON_BUILD}/python-${PYTHON_VERSION}-linux-24.04-x64.tar.gz" \
+ && echo "${PYTHON_SHA256}  /tmp/python.tar.gz" | sha256sum -c - \
+ && install -d /tmp/python && tar -xzf /tmp/python.tar.gz -C /tmp/python \
+ && (cd /tmp/python && RUNNER_TOOL_CACHE=/opt/hostedtoolcache bash ./setup.sh) \
+ && rm -rf /tmp/python /tmp/python.tar.gz /root/.cache
+
+# Also the Node on the PATH: setup-task and setup-bun fall back to `npm i -g`.
+ARG NODE_VERSION=22.23.4
+ARG NODE_SHA256=1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce
 RUN curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
  && echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - \
- && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+ && install -d "/opt/hostedtoolcache/node/${NODE_VERSION}/x64" \
+ && tar -xJf /tmp/node.tar.xz -C "/opt/hostedtoolcache/node/${NODE_VERSION}/x64" --strip-components=1 \
+ && touch "/opt/hostedtoolcache/node/${NODE_VERSION}/x64.complete" \
  && rm /tmp/node.tar.xz
+ENV PATH=/opt/hostedtoolcache/node/${NODE_VERSION}/x64/bin:${PATH}
+
+ARG TASK_VERSION=3.52.0
+ARG TASK_SHA256=02c679ffae53dca791804847d78b31731615894e292948397c971c87ac9e95bd
+RUN curl -fsSL -o /tmp/task.tar.gz "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_amd64.tar.gz" \
+ && echo "${TASK_SHA256}  /tmp/task.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/task.tar.gz -C /usr/local/bin task \
+ && rm /tmp/task.tar.gz
+
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+RUN ln -s bun /usr/local/bin/bunx \
+ && [ "$(task --version)" = "${TASK_VERSION}" ] && [ "$(bun --version)" = 1.4.3 ]
 
 # Chromium's system libraries for the website's accessibility gate, which CI
 # otherwise installs with sudo. The version is apps/website's playwright.
@@ -76,7 +103,8 @@ ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 # `npm i -g` as the runner user, without sudo.
 ENV NPM_CONFIG_PREFIX=/home/runner/.npm-global
 ENV PATH=/home/runner/.npm-global/bin:/usr/lib/postgresql/${POSTGRES_MAJOR}/bin:${PATH}
-RUN install -d -o runner -g runner /home/runner/.npm-global /opt/hostedtoolcache
+RUN install -d -o runner -g runner /home/runner/.npm-global \
+ && chown -R runner:runner /opt/hostedtoolcache
 
 # GitHub's tool cache path: setup-python's builds carry it as their RUNPATH.
 ENV RUNNER_TOOL_CACHE=/opt/hostedtoolcache AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
